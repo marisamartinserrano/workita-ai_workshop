@@ -12,6 +12,7 @@
 | AI Framework | [Genkit](https://genkit.dev/) (`genkit`, `@genkit-ai/google-genai`) |
 | AI Model | Google Gemini (via `@genkit-ai/google-genai`) |
 | Runtime | Node.js v20+ |
+| Container | Docker |
 | Package manager | npm |
 
 ### Key dependencies
@@ -39,11 +40,21 @@ workita-ai_workshop/
 │   ├── changes/          # Active and archived changes
 │   └── specs/            # Canonical specifications
 ├── .claude/              # Claude Code commands and skills
+├── Dockerfile            # Container definition
 ├── CLAUDE.md             # This file
 └── README.md
 ```
 
 ## 4. Development Commands
+
+### Docker (primary)
+
+```bash
+docker build -t workita .          # Build the image
+docker run -p 8080:8080 workita    # Run — web app available at http://localhost:8080
+```
+
+### Local (without Docker)
 
 ```bash
 npx tsx src/index.ts                              # Run the app
@@ -51,6 +62,13 @@ genkit start -- npx tsx --watch src/index.ts      # Run with Genkit Dev UI (hot 
 ```
 
 Genkit Developer UI runs at `http://localhost:4000` — use it to test and debug flows.
+
+### Ports
+
+| Service | Port |
+|---|---|
+| Web app | 8080 |
+| Genkit Dev UI | 4000 |
 
 ## 5. Code Conventions
 
