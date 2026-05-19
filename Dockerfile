@@ -8,6 +8,8 @@ RUN npm ci
 COPY tsconfig.json ./
 COPY src/ ./src/
 
+RUN mkdir -p /app/uploads
+
 ENV PORT=8080
 
 EXPOSE 8080

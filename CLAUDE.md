@@ -33,8 +33,15 @@ GEMINI_API_KEY=<your Gemini API key>
 
 ```
 workita-ai_workshop/
-├── src/                  # Application source code
-│   └── index.ts          # Entry point
+├── src/
+│   ├── index.ts          # Express entry point — API routes + static serving
+│   ├── flows/
+│   │   └── onboarding.ts # Genkit onboarding AI flow
+│   └── public/           # Frontend static files served by Express
+│       ├── index.html
+│       ├── style.css
+│       └── app.js
+├── uploads/              # Temporary CV file storage (gitignored)
 ├── docs/                 # Context documentation
 ├── openspec/             # OpenSpec spec-driven change management
 │   ├── changes/          # Active and archived changes
@@ -50,9 +57,11 @@ workita-ai_workshop/
 ### Docker (primary)
 
 ```bash
-docker build -t workita .          # Build the image
-docker run -p 8080:8080 workita    # Run — web app available at http://localhost:8080
+docker build -t workita .
+docker run -p 8080:8080 -e GEMINI_API_KEY=your_key workita
 ```
+
+The `GEMINI_API_KEY` must be passed at runtime — never bake it into the image.
 
 ### Local (without Docker)
 
@@ -91,7 +100,28 @@ This repo uses OpenSpec for spec-driven development. **Always create a spec befo
 
 Specs live in `openspec/changes/<name>/` during development and are archived to `openspec/changes/archive/` on completion.
 
-## 7. References
+## 7. User Flow
+
+| Step | Actor | Action |
+|---|---|---|
+| 0 | Candidate | Opens the web app — chat interface loads at `http://localhost:8080` |
+| 0 | AI (Workita) | Auto-greets the candidate and asks for their name |
+| 1 | Candidate | Types their name |
+| 1 | AI (Workita) | Addresses them by name, asks for the role they are applying for |
+| 1 | Candidate | Types their role |
+| 1 | AI (Workita) | Asks them to upload their CV |
+| 1 | Candidate | Uploads CV via the Upload CV button |
+| 1 | AI (Workita) | Acknowledges the CV and confirms next steps |
+
+## 8. API Routes
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/` | Serves the chat UI |
+| `POST` | `/api/chat` | Sends messages to the Genkit onboarding flow |
+| `POST` | `/api/upload` | Accepts CV file upload (multer, stored in `uploads/`) |
+
+## 9. References
 
 - [Genkit docs](https://genkit.dev/docs/get-started)
 - Context documentation: `docs/`
