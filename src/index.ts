@@ -9,7 +9,12 @@ const __dirname = dirname(__filename);
 
 const app = express();
 const port = process.env.PORT ?? '8080';
-const upload = multer({ dest: 'uploads/' });
+
+const storage = multer.diskStorage({
+  destination: 'uploads/',
+  filename: (_req, file, cb) => cb(null, file.originalname),
+});
+const upload = multer({ storage });
 
 app.use(express.json());
 app.use(express.static(join(__dirname, 'public')));
