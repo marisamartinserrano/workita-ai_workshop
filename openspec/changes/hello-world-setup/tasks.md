@@ -15,4 +15,4 @@
 - [x] 3.1 Run `npm install` and confirm no errors
 - [x] 3.2 Run `npx tsx src/index.ts` and confirm server starts on port 8080
 - [x] 3.3 Confirm `curl http://localhost:8080` returns "Hello World"
-- [ ] 3.4 Build Docker image and confirm container starts and responds on port 8080
+- [x] 3.4 Build Docker image and confirm container starts and responds on port 8080
