@@ -9,26 +9,116 @@
   <body>
     <div class="app">
       <header class="header">
-        <h1>Workita</h1>
-        <p>Your AI Job Companion</p>
+        <div class="header-brand">
+          <h1>Workita</h1>
+          <p>Your AI Job Companion</p>
+        </div>
+        <div id="signInArea">
+          <a href="/auth/google" class="sign-in-btn">Sign in with Google</a>
+        </div>
+        <div class="user-info hidden" id="userInfo">
+          <img class="user-avatar" id="userAvatar" src="" alt="" />
+          <span class="user-name" id="userName"></span>
+          <a href="/auth/logout" class="sign-out-btn">Sign out</a>
+        </div>
       </header>
 
-      <div class="chat-window" id="chatWindow"></div>
+      <div class="main">
+        <nav class="journey-panel">
+          <div class="block">
+            <h2 class="block-title">Getting Started</h2>
+            <button class="journey-btn" data-journey="getting-started"
+              data-tooltip="Guidance on CV submission and role selection — the first step of your journey.">
+              Getting Started
+            </button>
+            <button class="journey-btn" data-journey="quizzes"
+              data-tooltip="Interactive quizzes to build your professional knowledge and prepare for interviews.">
+              Quizzes
+            </button>
+          </div>
 
-      <div class="input-area">
-        <div class="upload-row">
-          <label for="cvUpload" class="upload-label">Upload CV</label>
-          <input type="file" id="cvUpload" accept=".pdf,.doc,.docx" />
-          <span id="uploadStatus"></span>
-        </div>
-        <div class="message-row">
-          <input
-            type="text"
-            id="messageInput"
-            placeholder="Type your message..."
-            autocomplete="off"
-          />
-          <button id="sendBtn" onclick="sendMessage()">Send</button>
+          <div class="block">
+            <h2 class="block-title">Application</h2>
+            <button class="journey-btn" data-journey="improve-cv"
+              data-tooltip="Optimize your CV for the role, company, and ATS systems with personalized guidance.">
+              Improve CV
+            </button>
+            <button class="journey-btn" data-journey="improve-linkedin"
+              data-tooltip="Optimize your LinkedIn profile to attract recruiters and align it with your CV.">
+              Improve LinkedIn
+            </button>
+          </div>
+
+          <div class="block">
+            <h2 class="block-title">Interview Preparation</h2>
+            <button class="journey-btn" data-journey="interview-recruiter"
+              data-tooltip="Practise a simulated recruiter screening call with AI-powered feedback.">
+              Recruiter Interview
+            </button>
+            <button class="journey-btn" data-journey="interview-technical"
+              data-tooltip="Prepare for technical questions tailored to your role with detailed feedback.">
+              Technical Interview
+            </button>
+            <button class="journey-btn" data-journey="interview-usecase"
+              data-tooltip="Practise solving real-world case studies relevant to your target role.">
+              Use Case Interview
+            </button>
+            <button class="journey-btn" data-journey="interview-team"
+              data-tooltip="Simulate a team interview focusing on collaboration, agile, and ways of working.">
+              Team Interview
+            </button>
+            <button class="journey-btn" data-journey="interview-hiring-manager"
+              data-tooltip="Prepare for an in-depth interview with a simulated hiring manager.">
+              Hiring Manager
+            </button>
+            <button class="journey-btn" data-journey="interview-culture"
+              data-tooltip="Practise articulating your values and fit with the company culture.">
+              Culture Fit
+            </button>
+            <button class="journey-btn" data-journey="interview-stakeholder"
+              data-tooltip="Develop your stakeholder management and communication skills.">
+              Stakeholder Interview
+            </button>
+          </div>
+
+          <div class="block">
+            <h2 class="block-title">Closing</h2>
+            <button class="journey-btn" data-journey="salary-negotiation"
+              data-tooltip="Get data-driven guidance on negotiating your salary and benefits package.">
+              Salary Negotiation
+            </button>
+            <button class="journey-btn" data-journey="counteroffer-handling"
+              data-tooltip="Navigate counteroffers from your current employer with confidence.">
+              Counteroffer Handling
+            </button>
+            <button class="journey-btn" data-journey="feedback"
+              data-tooltip="Receive personalized guidance based on interview feedback to improve your chances.">
+              Feedback
+            </button>
+          </div>
+        </nav>
+
+        <div class="chat-section">
+          <div class="chat-placeholder" id="chatPlaceholder">
+            <p>Select a journey to get started</p>
+          </div>
+          <div class="chat-window" id="chatWindow"></div>
+          <div class="input-area" id="inputArea">
+            <div class="upload-row" id="uploadRow">
+              <label for="cvUpload" class="upload-label">Upload CV</label>
+              <input type="file" id="cvUpload" accept=".pdf,.doc,.docx" />
+              <span id="uploadStatus"></span>
+            </div>
+            <div class="message-row">
+              <input
+                type="text"
+                id="messageInput"
+                placeholder="Type your message..."
+                autocomplete="off"
+              />
+              <button id="sendBtn">Send</button>
+            </div>
+          </div>
         </div>
       </div>
     </div>

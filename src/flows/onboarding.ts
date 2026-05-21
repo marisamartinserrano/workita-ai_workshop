@@ -1,9 +1,10 @@
-import { gemini20FlashLite, googleAI } from '@genkit-ai/googleai';
+import { googleAI } from '@genkit-ai/google-genai';
 import { genkit, z } from 'genkit';
 
 const ai = genkit({
-  plugins: [googleAI()],
-  model: gemini20FlashLite,
+    plugins: [googleAI()],
+    // Optional. Specify a default model.
+    model: googleAI.model('gemini-2.5-flash'),
 });
 
 const fetchJobPosting = ai.defineTool(

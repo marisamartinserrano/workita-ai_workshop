@@ -13,7 +13,7 @@ body {
   display: flex;
   flex-direction: column;
   width: 100%;
-  max-width: 720px;
+  max-width: 960px;
   height: 90vh;
   background: #fff;
   border-radius: 12px;
@@ -22,22 +22,162 @@ body {
 }
 
 .header {
-  padding: 20px 24px;
+  padding: 14px 24px;
   background: #1a73e8;
+  color: #fff;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.header-brand h1 { font-size: 1.4rem; font-weight: 700; }
+.header-brand p  { font-size: 0.85rem; opacity: 0.85; margin-top: 2px; }
+
+.sign-in-btn {
+  background: rgba(255,255,255,0.15);
+  color: #fff;
+  border: 1px solid rgba(255,255,255,0.4);
+  padding: 7px 16px;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+  white-space: nowrap;
+  text-decoration: none;
+  display: inline-block;
+}
+
+.sign-in-btn:hover { background: rgba(255,255,255,0.25); }
+
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.user-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.4);
+  object-fit: cover;
+}
+
+.user-name {
+  font-size: 0.9rem;
+  font-weight: 500;
   color: #fff;
 }
 
-.header h1 { font-size: 1.4rem; font-weight: 700; }
-.header p  { font-size: 0.85rem; opacity: 0.85; margin-top: 2px; }
+.sign-out-btn {
+  background: rgba(255,255,255,0.15);
+  color: #fff;
+  border: 1px solid rgba(255,255,255,0.4);
+  padding: 5px 12px;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  text-decoration: none;
+  transition: background 0.2s;
+  white-space: nowrap;
+}
+
+.sign-out-btn:hover { background: rgba(255,255,255,0.25); }
+
+.hidden { display: none !important; }
+
+.main {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* Journey sidebar */
+.journey-panel {
+  width: 220px;
+  flex-shrink: 0;
+  border-right: 1px solid #e8eaed;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.block { margin-bottom: 8px; }
+
+.block-title {
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #80868b;
+  padding: 8px 8px 4px;
+}
+
+.journey-btn {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #202124;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, opacity 0.15s;
+}
+
+.journey-btn:hover { background: #f1f3f4; }
+
+.journey-btn.active {
+  background: #e8f0fe;
+  color: #1a73e8;
+  font-weight: 500;
+}
+
+.journey-btn.completed { color: #188038; }
+
+.journey-btn.completed::after {
+  content: ' ✓';
+  font-size: 0.8rem;
+}
+
+.journey-btn.gated { opacity: 0.45; }
+
+/* Chat section */
+.chat-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.chat-placeholder {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #80868b;
+  font-size: 0.95rem;
+}
+
+.chat-placeholder.hidden { display: none; }
 
 .chat-window {
   flex: 1;
   overflow-y: auto;
   padding: 20px 24px;
-  display: flex;
+  display: none;
   flex-direction: column;
   gap: 12px;
 }
+
+.chat-window.visible { display: flex; }
 
 .bubble {
   max-width: 75%;
@@ -45,7 +185,6 @@ body {
   border-radius: 16px;
   font-size: 0.95rem;
   line-height: 1.5;
-  white-space: pre-wrap;
 }
 
 .bubble.model {
@@ -60,6 +199,7 @@ body {
   background: #1a73e8;
   color: #fff;
   border-bottom-right-radius: 4px;
+  white-space: pre-wrap;
 }
 
 .bubble.typing { opacity: 0.5; font-style: italic; }
@@ -67,17 +207,22 @@ body {
 .input-area {
   border-top: 1px solid #e8eaed;
   padding: 16px 24px;
-  display: flex;
+  display: none;
   flex-direction: column;
   gap: 10px;
   background: #fff;
+  flex-shrink: 0;
 }
+
+.input-area.visible { display: flex; }
 
 .upload-row {
   display: flex;
   align-items: center;
   gap: 10px;
 }
+
+.upload-row.hidden { display: none; }
 
 .upload-label {
   background: #f1f3f4;
