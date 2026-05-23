@@ -228,4 +228,30 @@ document.querySelectorAll('.journey-btn').forEach(btn => {
   btn.addEventListener('click', () => startJourney(btn.dataset.journey));
 });
 
+function initCookieConsent() {
+  const banner = document.getElementById('cookieBanner');
+  const stored = localStorage.getItem('workita_cookie_consent');
+
+  if (!stored) {
+    banner.classList.remove('hidden');
+  }
+
+  document.getElementById('cookieAccept').addEventListener('click', () => {
+    localStorage.setItem('workita_cookie_consent', 'accepted');
+    banner.classList.add('hidden');
+  });
+
+  document.getElementById('cookieDecline').addEventListener('click', () => {
+    localStorage.setItem('workita_cookie_consent', 'declined');
+    banner.classList.add('hidden');
+  });
+
+  document.getElementById('cookieSettingsLink').addEventListener('click', e => {
+    e.preventDefault();
+    localStorage.removeItem('workita_cookie_consent');
+    banner.classList.remove('hidden');
+  });
+}
+
 loadSession();
+initCookieConsent();
