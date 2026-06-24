@@ -29,6 +29,8 @@ const __dirname = dirname(__filename);
 const app = express();
 const port = process.env.PORT ?? '8080';
 
+app.set('trust proxy', 1);
+
 const PgStore = connectPgSimple(session);
 
 const upload = multer({ storage: multer.memoryStorage() });
