@@ -14,6 +14,20 @@ services:
       timeout: 5s
       retries: 5
 
+  clamav:
+    image: clamav/clamav:latest
+    environment:
+      CLAMD_CONF_TCPSocket: 3310
+      CLAMD_CONF_TCPAddr: 0.0.0.0
+    volumes:
+      - clamav_data:/var/lib/clamav
+    healthcheck:
+      test: ["CMD", "clamdcheck.sh"]
+      interval: 60s
+      timeout: 30s
+      retries: 3
+      start_period: 300s
+
   app:
     image: marisamartinserrano/workita:latest
     environment:
@@ -25,6 +39,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      clamav:
+        condition: service_started
 
   caddy:
     image: caddy:2-alpine
@@ -42,3 +58,4 @@ volumes:
   postgres_data:
   caddy_data:
   caddy_config:
+  clamav_data:

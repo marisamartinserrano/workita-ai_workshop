@@ -56,3 +56,23 @@ CREATE TABLE IF NOT EXISTS candidature_stages (
   stage_name VARCHAR(100) NOT NULL,
   entered_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS profiles (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+  target_role VARCHAR(255),
+  seniority VARCHAR(50),
+  industry VARCHAR(255),
+  location VARCHAR(255),
+  work_mode VARCHAR(50),
+  salary VARCHAR(255),
+  preferred_companies TEXT,
+  cv_text TEXT,
+  cv_filename VARCHAR(255),
+  cv_file BYTEA,
+  cv_file_type VARCHAR(100),
+  linkedin_url VARCHAR(500),
+  cv_analysis JSONB,
+  linkedin_analysis JSONB,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);

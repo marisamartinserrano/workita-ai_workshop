@@ -139,6 +139,162 @@
             </div>
           </div>
 
+          <!-- Job Preferences -->
+          <div id="jobPreferencesSection" class="content-section hidden">
+            <h2 class="section-title">Job Preferences</h2>
+            <form class="profile-form" id="jobPreferencesForm" autocomplete="off">
+              <div class="field-group">
+                <label for="targetRole">Target Role</label>
+                <input type="text" id="targetRole" name="target_role" placeholder="e.g. Product Manager, Frontend Developer" />
+              </div>
+              <div class="field-group">
+                <label for="seniority">Seniority</label>
+                <select id="seniority" name="seniority">
+                  <option value="">— Select —</option>
+                  <option value="Junior">Junior</option>
+                  <option value="Mid-level">Mid-level</option>
+                  <option value="Senior">Senior</option>
+                  <option value="Lead">Lead</option>
+                  <option value="Manager">Manager</option>
+                  <option value="Director">Director</option>
+                  <option value="C-Level">C-Level</option>
+                </select>
+              </div>
+              <div class="field-group">
+                <label for="industry">Industry</label>
+                <input type="text" id="industry" name="industry" placeholder="e.g. Fintech, Healthcare, SaaS" />
+              </div>
+              <div class="field-group">
+                <label for="location">Location</label>
+                <input type="text" id="location" name="location" placeholder="e.g. London, Remote (EU)" />
+              </div>
+              <div class="field-group">
+                <label for="workMode">Preferred Work Mode</label>
+                <select id="workMode" name="work_mode">
+                  <option value="">— Select —</option>
+                  <option value="On-site">On-site</option>
+                  <option value="Remote">Remote</option>
+                  <option value="Hybrid">Hybrid</option>
+                </select>
+              </div>
+              <div class="field-group">
+                <label for="salary">Salary Expectations</label>
+                <input type="text" id="salary" name="salary" placeholder="e.g. €60,000–€75,000" />
+              </div>
+              <div class="field-group">
+                <label for="preferredCompanies">Preferred Companies</label>
+                <input type="text" id="preferredCompanies" name="preferred_companies" placeholder="e.g. Stripe, Notion, Figma (comma-separated)" />
+              </div>
+              <button type="submit" class="save-btn">Save Preferences</button>
+              <span class="toast hidden" id="jobPrefToast">✓ Saved</span>
+            </form>
+          </div>
+
+          <!-- CV & Analysis -->
+          <div id="cvAnalysisSection" class="content-section hidden">
+            <h2 class="section-title">CV &amp; Analysis</h2>
+
+            <details class="collapsible-explainer">
+              <summary>How ATS (Applicant Tracking Systems) work for candidates</summary>
+              <div class="explainer-body">
+                <p><strong>What is an ATS?</strong> — Software used by companies (Taleo, Greenhouse, Workday, SmartRecruiters) to parse, filter, and score CVs automatically before a human ever reads them. CVs below a score threshold are rejected without review.</p>
+                <p><strong>How parsing works</strong> — The ATS extracts structured fields: job titles, employment dates, education, skills, and contact details. Anything it cannot parse (tables, text boxes, headers/footers, images) is silently dropped.</p>
+                <p><strong>Tip: Mirror the job description</strong> — Use the exact keywords and phrases from the posting. If it says "stakeholder management", do not write "managing stakeholders".</p>
+                <p><strong>Tip: Use a clean, single-column format</strong> — Avoid tables, columns, text boxes, and graphics. Use plain section headings: Experience, Education, Skills, Certifications.</p>
+                <p><strong>Tip: Spell out abbreviations once</strong> — Write "Product Manager (PM)" on first use. ATS engines may not recognise acronyms without context.</p>
+                <p><strong>Tip: Keep dates consistent</strong> — Use the same format throughout (e.g., "Jan 2022 – Mar 2024"). Missing or ambiguous dates are a common rejection flag.</p>
+                <p><strong>Tip: Quantify achievements</strong> — "Reduced churn by 18%" scores higher than "improved retention". Numbers stand out in keyword scoring.</p>
+              </div>
+            </details>
+
+            <p class="section-description">Upload your CV to get AI-powered skills extraction, gap analysis, and ATS feedback.</p>
+
+            <div class="upload-zone" id="cvUploadZone">
+              <input type="file" id="cvFileInput" accept=".pdf,.docx" class="upload-file-input" />
+              <div class="upload-zone-inner">
+                <div class="upload-icon">📄</div>
+                <p class="upload-label">Drop your CV here or <strong>browse</strong></p>
+                <p class="upload-format-hint">PDF or DOCX · Max 10 MB</p>
+              </div>
+            </div>
+
+            <div class="upload-status hidden" id="cvUploadStatus">
+              <div class="upload-status-row">
+                <div class="upload-spinner"></div>
+                <span class="upload-step" id="cvUploadStep">Uploading…</span>
+              </div>
+              <div class="upload-progress-track hidden" id="uploadProgressTrack">
+                <div class="upload-progress-fill" id="uploadProgressFill"></div>
+              </div>
+            </div>
+
+            <div class="upload-file-info hidden" id="cvFileInfo">
+              <span class="file-doc-icon">📄</span>
+              <span class="file-name" id="cvFileName"></span>
+              <button class="replace-btn" id="cvReplaceBtn">Replace</button>
+              <a href="/api/profile/cv-file" class="download-btn" id="downloadCvBtn">↓ Download CV</a>
+            </div>
+
+            <div class="upload-error hidden" id="cvUploadError">
+              <p class="upload-error-msg" id="cvUploadErrorMsg"></p>
+              <button class="replace-btn" id="cvRetryBtn">Try another file</button>
+            </div>
+
+            <div class="form-row" style="margin-top:16px">
+              <button type="button" class="analyse-btn" id="analyseCvBtn" disabled>Analyse CV</button>
+              <a href="/api/profile/cv-analysis/download" class="download-btn hidden" id="downloadCvAnalysisBtn">↓ Download Report</a>
+            </div>
+
+            <div class="upload-status hidden" id="cvAnalysisStatus">
+              <div class="upload-status-row">
+                <div class="upload-spinner"></div>
+                <span id="cvAnalysisStep">Analysing your CV with AI…</span>
+              </div>
+              <div class="upload-progress-track" id="analysisProgressTrack">
+                <div class="upload-progress-fill" id="analysisProgressFill"></div>
+              </div>
+            </div>
+
+            <div class="analysis-results hidden" id="cvAnalysisResults"></div>
+          </div>
+
+          <!-- LinkedIn -->
+          <div id="linkedinSection" class="content-section hidden">
+            <h2 class="section-title">LinkedIn Analysis</h2>
+            <div class="cv-link-status hidden" id="cvLinkStatus"></div>
+            <details class="collapsible-explainer">
+              <summary>How LinkedIn works for candidates</summary>
+              <div class="explainer-body">
+                <p><strong>Profile completeness</strong> — LinkedIn ranks complete profiles higher. Aim for "All-Star" status by filling in every section.</p>
+                <p><strong>Keyword matching</strong> — Recruiters search by skills, titles, and industry keywords. Match your headline and summary to the roles you target.</p>
+                <p><strong>Recruiter search behaviour</strong> — Most searches filter by current title, location, and skills. Your headline is the first thing they read.</p>
+                <p><strong>ATS consistency</strong> — Many companies import LinkedIn profiles into ATS. Inconsistencies between your CV and LinkedIn raise flags.</p>
+              </div>
+            </details>
+            <form class="profile-form" id="linkedinForm" autocomplete="off">
+              <div class="field-group">
+                <label for="linkedinUrl">LinkedIn Profile URL</label>
+                <input type="url" id="linkedinUrl" name="linkedin_url" placeholder="https://www.linkedin.com/in/yourprofile" />
+              </div>
+              <div class="form-row">
+                <button type="submit" class="save-btn">Save</button>
+                <button type="button" class="analyse-btn" id="analyseLinkedinBtn">Get Recommendations</button>
+                <a href="/api/profile/linkedin-analysis/download" class="download-btn hidden" id="downloadLinkedinAnalysisBtn">↓ Download Report</a>
+                <span class="toast hidden" id="linkedinToast">✓ Saved</span>
+              </div>
+            </form>
+            <div class="upload-status hidden" id="linkedinAnalysisStatus">
+              <div class="upload-status-row">
+                <div class="upload-spinner"></div>
+                <span id="linkedinAnalysisStep">Getting recommendations…</span>
+              </div>
+              <div class="upload-progress-track" id="linkedinProgressTrack">
+                <div class="upload-progress-fill" id="linkedinProgressFill"></div>
+              </div>
+            </div>
+            <div class="analysis-results hidden" id="linkedinResults"></div>
+          </div>
+
           <div class="chat-window" id="chatWindow"></div>
           <div class="input-area" id="inputArea">
             <div class="upload-row hidden" id="uploadRow">

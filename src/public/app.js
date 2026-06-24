@@ -4,11 +4,8 @@ let activeJourney = null;
 let messages = [];
 let currentUser = null;
 
-// Maps nav sections to AI journey IDs
+// Maps nav sections to AI journey IDs (profile sections handled separately)
 const SECTION_JOURNEY_MAP = {
-  'job-preferences': 'getting-started',
-  'cv-analysis': 'improve-cv',
-  'linkedin-analysis': 'improve-linkedin',
   'quizzes': 'quizzes',
 };
 
@@ -51,6 +48,357 @@ function updateNavItems() {
       item.removeAttribute('aria-current');
     }
   });
+}
+
+let profileData = {};
+
+async function loadProfile() {
+  try {
+    profileData = await fetch('/api/profile').then(r => r.json());
+  } catch {
+    profileData = {};
+  }
+}
+
+function showToast(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.remove('hidden');
+  setTimeout(() => el.classList.add('hidden'), 2500);
+}
+
+function populateJobPreferencesForm() {
+  const fields = ['target_role', 'seniority', 'industry', 'location', 'work_mode', 'salary', 'preferred_companies'];
+  fields.forEach(f => {
+    const el = document.querySelector(`[name="${f}"]`);
+    if (el) el.value = profileData[f] ?? '';
+  });
+}
+
+function populateCvForm() {
+  const hasCv = !!(profileData.cv_text && profileData.cv_text.trim());
+  document.getElementById('cvUploadZone').classList.toggle('hidden', hasCv);
+  document.getElementById('cvFileInfo').classList.toggle('hidden', !hasCv);
+  document.getElementById('downloadCvBtn').classList.toggle('hidden', !hasCv);
+  if (hasCv) {
+    document.getElementById('cvFileName').textContent = profileData.cv_filename || 'CV on file';
+  }
+  document.getElementById('analyseCvBtn').disabled = !hasCv;
+  if (profileData.cv_analysis) {
+    renderCvResults(profileData.cv_analysis);
+  } else {
+    document.getElementById('downloadCvAnalysisBtn').classList.add('hidden');
+  }
+}
+
+function resetCvUploadZone() {
+  document.getElementById('cvUploadZone').classList.remove('hidden');
+  document.getElementById('cvFileInfo').classList.add('hidden');
+  document.getElementById('cvUploadStatus').classList.add('hidden');
+  document.getElementById('cvUploadError').classList.add('hidden');
+  document.getElementById('downloadCvBtn').classList.add('hidden');
+  document.getElementById('downloadCvAnalysisBtn').classList.add('hidden');
+  document.getElementById('cvAnalysisResults').classList.add('hidden');
+  document.getElementById('analyseCvBtn').disabled = true;
+}
+
+function uploadCv(file) {
+  const statusEl   = document.getElementById('cvUploadStatus');
+  const stepEl     = document.getElementById('cvUploadStep');
+  const trackEl    = document.getElementById('uploadProgressTrack');
+  const fillEl     = document.getElementById('uploadProgressFill');
+  const errorEl    = document.getElementById('cvUploadError');
+  const errorMsgEl = document.getElementById('cvUploadErrorMsg');
+  const fileInfoEl = document.getElementById('cvFileInfo');
+
+  document.getElementById('cvUploadZone').classList.add('hidden');
+  errorEl.classList.add('hidden');
+  statusEl.classList.remove('hidden');
+  trackEl.classList.add('hidden');
+  stepEl.textContent = 'Uploading…';
+
+  let scanInterval = null;
+  let scanPct = 0;
+
+  function setFill(pct) { fillEl.style.width = pct + '%'; }
+
+  function startScanBar() {
+    trackEl.classList.remove('hidden');
+    fillEl.style.transition = 'none';
+    setFill(0);
+    fillEl.getBoundingClientRect(); // force reflow
+    fillEl.style.transition = 'width 0.4s ease';
+    scanPct = 0;
+    scanInterval = setInterval(() => {
+      const gap = 92 - scanPct;
+      if (gap <= 0) return;
+      scanPct = Math.min(92, scanPct + Math.max(0.5, gap * 0.04));
+      setFill(scanPct);
+    }, 300);
+  }
+
+  function endScanBar(ok) {
+    if (scanInterval) { clearInterval(scanInterval); scanInterval = null; }
+    setFill(ok ? 100 : 0);
+  }
+
+  function showError(msg) {
+    endScanBar(false);
+    setTimeout(() => {
+      statusEl.classList.add('hidden');
+      document.getElementById('cvUploadZone').classList.remove('hidden');
+      errorEl.classList.remove('hidden');
+      errorMsgEl.textContent = msg;
+    }, 300);
+  }
+
+  const xhr = new XMLHttpRequest();
+
+  xhr.upload.addEventListener('loadend', () => {
+    stepEl.textContent = 'Scanning for viruses…';
+    startScanBar();
+  });
+
+  xhr.onload = () => {
+    try {
+      const data = JSON.parse(xhr.responseText);
+      if (xhr.status >= 400) { showError(data.error || 'Upload failed. Please try again.'); return; }
+
+      endScanBar(true);
+      setTimeout(() => {
+        profileData.cv_text = data.cv_text;
+        profileData.cv_filename = data.cv_filename || file.name;
+        profileData.cv_analysis = undefined;
+        statusEl.classList.add('hidden');
+        fileInfoEl.classList.remove('hidden');
+        document.getElementById('cvFileName').textContent = profileData.cv_filename;
+        document.getElementById('downloadCvBtn').classList.remove('hidden');
+        document.getElementById('analyseCvBtn').disabled = false;
+        document.getElementById('cvAnalysisResults').classList.add('hidden');
+        document.getElementById('downloadCvAnalysisBtn').classList.add('hidden');
+        analyzeCvSection();
+      }, 500);
+    } catch {
+      showError('Upload failed. Please try again.');
+    }
+  };
+
+  xhr.onerror = () => showError('Upload failed. Please check your connection and try again.');
+
+  const fd = new FormData();
+  fd.append('cv_file', file);
+  xhr.open('POST', '/api/profile/upload-cv');
+  xhr.send(fd);
+}
+
+function populateLinkedinForm() {
+  const el = document.getElementById('linkedinUrl');
+  if (el) el.value = profileData.linkedin_url ?? '';
+
+  const statusEl = document.getElementById('cvLinkStatus');
+  const btn = document.getElementById('analyseLinkedinBtn');
+  const hasCv = !!(profileData.cv_text && profileData.cv_text.trim());
+
+  statusEl.classList.remove('hidden', 'linked', 'missing');
+  if (hasCv) {
+    statusEl.classList.add('linked');
+    statusEl.innerHTML = '✓ CV linked to your profile — recommendations will be personalised to your background.';
+    btn.disabled = false;
+  } else {
+    statusEl.classList.add('missing');
+    statusEl.innerHTML = '⚠ No CV uploaded yet. <a id="goToCvLink" href="#">Upload your CV in CV &amp; Analysis</a> first to get personalised recommendations.';
+    btn.disabled = true;
+    document.getElementById('goToCvLink').addEventListener('click', (e) => {
+      e.preventDefault();
+      navigateTo('cv-analysis');
+    });
+  }
+
+  document.getElementById('linkedinAnalysisStatus').classList.add('hidden');
+  if (profileData.linkedin_analysis) {
+    renderLinkedinResults(profileData.linkedin_analysis);
+  } else {
+    document.getElementById('downloadLinkedinAnalysisBtn').classList.add('hidden');
+  }
+}
+
+async function saveProfile(fields) {
+  await fetch('/api/profile', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(fields),
+  });
+  await loadProfile();
+}
+
+function renderCvResults(data) {
+  const panel = document.getElementById('cvAnalysisResults');
+  if (!data || !panel) return;
+
+  const skillsHtml = (data.skills ?? []).map(s => `<span class="skill-chip">${s}</span>`).join('');
+  const expHtml = (data.experience ?? []).map(e => `<li>${e}</li>`).join('');
+  const eduHtml = (data.education ?? []).map(e => `<li>${e}</li>`).join('');
+  const gapsHtml = (data.gaps ?? []).map(g => `<li>${g}</li>`).join('');
+  const atsHtml = (data.atsFeedback ?? []).map(a => `
+    <div class="ats-item ${a.status}">
+      <span class="ats-badge">${a.status}</span>
+      <div class="ats-content">
+        <span class="ats-item-label">${a.item}</span>
+        ${a.suggestion ? `<span class="ats-item-suggestion">${a.suggestion}</span>` : ''}
+      </div>
+    </div>`).join('');
+
+  panel.innerHTML = `
+    <div class="results-section"><h3>Skills</h3><div class="skill-chips">${skillsHtml}</div></div>
+    <div class="results-section"><h3>Experience</h3><ul class="results-list">${expHtml}</ul></div>
+    <div class="results-section"><h3>Education</h3><ul class="results-list">${eduHtml}</ul></div>
+    <div class="results-section"><h3>Profile Gaps</h3><ul class="results-list">${gapsHtml}</ul></div>
+    <div class="results-section"><h3>ATS Feedback</h3><div class="ats-row">${atsHtml}</div></div>
+  `;
+  panel.classList.remove('hidden');
+  document.getElementById('downloadCvAnalysisBtn').classList.remove('hidden');
+}
+
+function renderLinkedinResults(data) {
+  const panel = document.getElementById('linkedinResults');
+  if (!data || !panel) return;
+
+  const noteHtml = data.note ? `<p class="analysis-note">${data.note}</p>` : '';
+  const recsHtml = (data.recommendations ?? []).map(r => `
+    <div class="recommendation-card">
+      <div class="rec-header">
+        <span class="rec-title">${r.title}</span>
+        <span class="priority-badge ${r.priority}">${r.priority}</span>
+      </div>
+      <p class="rec-rationale">${r.rationale}</p>
+    </div>`).join('');
+
+  panel.innerHTML = noteHtml + recsHtml;
+  panel.classList.remove('hidden');
+  document.getElementById('downloadLinkedinAnalysisBtn').classList.remove('hidden');
+}
+
+async function analyzeCvSection() {
+  const btn = document.getElementById('analyseCvBtn');
+  const panel = document.getElementById('cvAnalysisResults');
+  const statusEl = document.getElementById('cvAnalysisStatus');
+  const fillEl = document.getElementById('analysisProgressFill');
+  const stepEl = document.getElementById('cvAnalysisStep');
+
+  btn.disabled = true;
+  panel.classList.add('hidden');
+  document.getElementById('downloadCvAnalysisBtn').classList.add('hidden');
+  statusEl.classList.remove('hidden');
+
+  const steps = ['Analysing your CV with AI…', 'Extracting skills and experience…', 'Checking ATS compatibility…', 'Building your report…'];
+  let stepIdx = 0;
+  let pct = 0;
+  fillEl.style.transition = 'none';
+  fillEl.style.width = '0%';
+  fillEl.getBoundingClientRect();
+  fillEl.style.transition = 'width 0.5s ease';
+  stepEl.textContent = steps[0];
+
+  const stepTimer = setInterval(() => {
+    if (stepIdx < steps.length - 1) stepEl.textContent = steps[++stepIdx];
+  }, 4000);
+
+  const fillTimer = setInterval(() => {
+    const gap = 90 - pct;
+    if (gap <= 0) return;
+    pct = Math.min(90, pct + Math.max(0.4, gap * 0.035));
+    fillEl.style.width = pct + '%';
+  }, 400);
+
+  try {
+    const data = await fetch('/api/profile/analyze-cv', { method: 'POST' }).then(r => r.json());
+    clearInterval(stepTimer);
+    clearInterval(fillTimer);
+
+    if (data.error) {
+      fillEl.style.width = '0%';
+      statusEl.classList.add('hidden');
+      alert(data.error);
+      btn.disabled = false;
+      return;
+    }
+
+    fillEl.style.width = '100%';
+    setTimeout(() => {
+      statusEl.classList.add('hidden');
+      profileData.cv_analysis = data;
+      renderCvResults(data);
+      btn.disabled = false;
+    }, 500);
+  } catch {
+    clearInterval(stepTimer);
+    clearInterval(fillTimer);
+    fillEl.style.width = '0%';
+    statusEl.classList.add('hidden');
+    alert('CV analysis failed. Please try again.');
+    btn.disabled = false;
+  }
+}
+
+async function analyzeLinkedinSection() {
+  const btn = document.getElementById('analyseLinkedinBtn');
+  const panel = document.getElementById('linkedinResults');
+  const statusEl = document.getElementById('linkedinAnalysisStatus');
+  const fillEl = document.getElementById('linkedinProgressFill');
+  const stepEl = document.getElementById('linkedinAnalysisStep');
+
+  btn.disabled = true;
+  panel.classList.add('hidden');
+  document.getElementById('downloadLinkedinAnalysisBtn').classList.add('hidden');
+  statusEl.classList.remove('hidden');
+
+  const steps = ['Analysing your LinkedIn profile…', 'Comparing with your CV…', 'Identifying optimisation opportunities…', 'Building your recommendations…'];
+  let stepIdx = 0, pct = 0;
+  fillEl.style.transition = 'none';
+  fillEl.style.width = '0%';
+  fillEl.getBoundingClientRect();
+  fillEl.style.transition = 'width 0.5s ease';
+  stepEl.textContent = steps[0];
+
+  const stepTimer = setInterval(() => {
+    if (stepIdx < steps.length - 1) stepEl.textContent = steps[++stepIdx];
+  }, 4000);
+
+  const fillTimer = setInterval(() => {
+    const gap = 90 - pct;
+    if (gap <= 0) return;
+    pct = Math.min(90, pct + Math.max(0.4, gap * 0.035));
+    fillEl.style.width = pct + '%';
+  }, 400);
+
+  try {
+    const data = await fetch('/api/profile/analyze-linkedin', { method: 'POST' }).then(r => r.json());
+    clearInterval(stepTimer);
+    clearInterval(fillTimer);
+
+    if (data.error) {
+      fillEl.style.width = '0%';
+      statusEl.classList.add('hidden');
+      alert(data.error);
+      btn.disabled = false;
+      return;
+    }
+
+    fillEl.style.width = '100%';
+    setTimeout(() => {
+      statusEl.classList.add('hidden');
+      profileData.linkedin_analysis = data;
+      renderLinkedinResults(data);
+      btn.disabled = false;
+    }, 500);
+  } catch {
+    clearInterval(stepTimer);
+    clearInterval(fillTimer);
+    fillEl.style.width = '0%';
+    statusEl.classList.add('hidden');
+    alert('LinkedIn analysis failed. Please try again.');
+    btn.disabled = false;
+  }
 }
 
 function setGroupExpanded(groupId, expanded) {
@@ -163,6 +511,9 @@ async function navigateTo(section) {
 
   placeholder.classList.add('hidden');
   homeSection.classList.add('hidden');
+  document.getElementById('jobPreferencesSection').classList.add('hidden');
+  document.getElementById('cvAnalysisSection').classList.add('hidden');
+  document.getElementById('linkedinSection').classList.add('hidden');
   chatWindow.classList.remove('visible');
   chatWindow.innerHTML = '';
   inputArea.classList.remove('visible');
@@ -177,6 +528,29 @@ async function navigateTo(section) {
   // Auto-expand parent groups
   if (PROFILE_SECTIONS.has(section)) setGroupExpanded('profile', true);
   if (CANDIDATURE_SECTIONS.has(section) || section.startsWith('candidature')) setGroupExpanded('candidatures', true);
+
+  // Profile sections
+  const PROFILE_SECTION_IDS = {
+    'job-preferences': 'jobPreferencesSection',
+    'cv-analysis': 'cvAnalysisSection',
+    'linkedin-analysis': 'linkedinSection',
+  };
+
+  if (section in PROFILE_SECTION_IDS) {
+    if (!currentUser) {
+      chatWindow.classList.add('visible');
+      addBubble('model', 'Please **sign in with Google** to get started.');
+      return;
+    }
+    const sectionId = PROFILE_SECTION_IDS[section];
+    const sectionEl = document.getElementById(sectionId);
+    sectionEl.classList.remove('hidden');
+    await loadProfile();
+    if (section === 'job-preferences') populateJobPreferencesForm();
+    if (section === 'cv-analysis') populateCvForm();
+    if (section === 'linkedin-analysis') populateLinkedinForm();
+    return;
+  }
 
   if (section === 'home') {
     homeSection.classList.remove('hidden');
@@ -387,6 +761,44 @@ function initCookieConsent() {
     banner.classList.remove('hidden');
   });
 }
+
+// Job Preferences form
+document.getElementById('jobPreferencesForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const data = Object.fromEntries(new FormData(e.target));
+  await saveProfile(data);
+  showToast('jobPrefToast');
+});
+
+// CV upload
+document.getElementById('cvFileInput').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (file) uploadCv(file);
+});
+
+const cvZone = document.getElementById('cvUploadZone');
+cvZone.addEventListener('dragover', e => { e.preventDefault(); cvZone.classList.add('dragover'); });
+cvZone.addEventListener('dragleave', () => cvZone.classList.remove('dragover'));
+cvZone.addEventListener('drop', e => {
+  e.preventDefault();
+  cvZone.classList.remove('dragover');
+  const file = e.dataTransfer.files[0];
+  if (file) uploadCv(file);
+});
+
+document.getElementById('cvReplaceBtn').addEventListener('click', resetCvUploadZone);
+document.getElementById('cvRetryBtn').addEventListener('click', resetCvUploadZone);
+document.getElementById('analyseCvBtn').addEventListener('click', analyzeCvSection);
+
+// LinkedIn form
+document.getElementById('linkedinForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const data = Object.fromEntries(new FormData(e.target));
+  await saveProfile(data);
+  showToast('linkedinToast');
+});
+
+document.getElementById('analyseLinkedinBtn').addEventListener('click', analyzeLinkedinSection);
 
 // Quick-action buttons on the Home section
 document.getElementById('qaNewCandidature').addEventListener('click', () => navigateTo('my-candidatures'));

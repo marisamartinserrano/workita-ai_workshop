@@ -2,9 +2,208 @@ import express from 'express';
 import session from 'express-session';
 import connectPgSimple from 'connect-pg-simple';
 import multer from 'multer';
+import net from 'net';
+import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { generateOnboardingResponse, type Message } from './flows/onboarding.js';
+import { analyzeCv, isCvContent, type CvAnalysisResult } from './flows/cvAnalysis.js';
+import { analyzeLinkedin, type LinkedinAnalysisResult } from './flows/linkedinAnalysis.js';
+
+const require = createRequire(import.meta.url);
+
+const CLAMAV_HOST = process.env.CLAMAV_HOST ?? 'clamav';
+const CLAMAV_PORT = parseInt(process.env.CLAMAV_PORT ?? '3310');
+const MAX_CV_BYTES = 10 * 1024 * 1024; // 10 MB
+
+function detectFileType(buf: Buffer): 'pdf' | 'docx' | null {
+  if (buf.length < 4) return null;
+  if (buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46) return 'pdf';
+  if (buf[0] === 0x50 && buf[1] === 0x4B && buf[2] === 0x03 && buf[3] === 0x04) return 'docx';
+  return null;
+}
+
+async function scanWithClamav(buffer: Buffer): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection({ host: CLAMAV_HOST, port: CLAMAV_PORT });
+    let response = '';
+    socket.setTimeout(30000);
+
+    socket.on('connect', () => {
+      socket.write('zINSTREAM\0');
+      const lenBuf = Buffer.allocUnsafe(4);
+      lenBuf.writeUInt32BE(buffer.length, 0);
+      socket.write(lenBuf);
+      socket.write(buffer);
+      socket.write(Buffer.alloc(4, 0));
+    });
+
+    socket.on('data', (d) => { response += d.toString(); });
+
+    socket.on('end', () => {
+      socket.destroy();
+      const result = response.trim();
+      if (result.includes('FOUND')) {
+        const m = result.match(/stream: (.+) FOUND/);
+        reject(new Error(`VIRUS_DETECTED:${m ? m[1] : 'unknown threat'}`));
+      } else if (result.includes('OK')) {
+        resolve();
+      } else {
+        reject(new Error(`SCAN_FAILED:${result}`));
+      }
+    });
+
+    socket.on('timeout', () => { socket.destroy(); reject(new Error('SCANNER_UNAVAILABLE:timeout')); });
+    socket.on('error', (e) => { reject(new Error(`SCANNER_UNAVAILABLE:${e.message}`)); });
+  });
+}
+
+async function extractText(buffer: Buffer, type: 'pdf' | 'docx'): Promise<string> {
+  if (type === 'pdf') {
+    const pdfParse = require('pdf-parse') as (b: Buffer) => Promise<{ text: string }>;
+    const result = await pdfParse(buffer);
+    return result.text;
+  }
+  const mammoth = require('mammoth') as { extractRawText: (o: { buffer: Buffer }) => Promise<{ value: string }> };
+  const result = await mammoth.extractRawText({ buffer });
+  return result.value;
+}
+
+const FILE_MIME: Record<string, string> = {
+  pdf: 'application/pdf',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+};
+
+// ── PDF report helpers ─────────────────────────────────────────────────────
+
+type PdfColors = Record<string, string>;
+
+function pdfSectionTitle(doc: any, title: string, M: number, W: number, C: PdfColors) {
+  if (doc.y > doc.page.height - 120) doc.addPage();
+  doc.font('Helvetica-Bold').fontSize(12).fillColor(C.blue).text(title, M);
+  doc.moveTo(M, doc.y).lineTo(M + W, doc.y).strokeColor(C.border).lineWidth(0.5).stroke();
+  doc.moveDown(0.4);
+}
+
+function pdfBulletList(doc: any, items: string[], M: number, W: number, C: PdfColors) {
+  for (const item of items) {
+    if (doc.y > doc.page.height - 80) doc.addPage();
+    doc.font('Helvetica').fontSize(10).fillColor(C.body).text(`• ${item}`, M, doc.y, { width: W });
+  }
+  doc.moveDown(0.5);
+}
+
+function pdfChips(doc: any, items: string[], M: number, W: number, C: PdfColors) {
+  if (!items.length) { doc.moveDown(0.5); return; }
+  const H = 20, PX = 10, PY = 5, GAP = 6, ROWGAP = 8, FS = 9;
+  doc.font('Helvetica').fontSize(FS);
+  let cx = M, cy = doc.y;
+  for (const item of items) {
+    const cw = doc.widthOfString(item) + PX * 2;
+    if (cx + cw > M + W) { cx = M; cy += H + ROWGAP; }
+    if (cy > doc.page.height - 80) { doc.addPage(); cy = M; cx = M; }
+    doc.roundedRect(cx, cy, cw, H, 4).fillColor(C.blueBg).fill();
+    doc.font('Helvetica').fontSize(FS).fillColor(C.blue)
+      .text(item, cx + PX, cy + PY, { lineBreak: false });
+    cx += cw + GAP;
+  }
+  doc.y = cy + H + 10;
+}
+
+function pdfAtsItem(doc: any, item: { item: string; status: string; suggestion: string }, M: number, W: number, C: PdfColors) {
+  if (doc.y > doc.page.height - 80) doc.addPage();
+  const badgeColor = item.status === 'pass' ? C.green : item.status === 'warn' ? C.amber : C.red;
+  const BW = 46, BH = 18, TX = M + BW + 10, TW = W - BW - 10;
+  const sy = doc.y;
+  doc.roundedRect(M, sy, BW, BH, 3).fillColor(badgeColor).fill();
+  doc.font('Helvetica-Bold').fontSize(8).fillColor('white')
+    .text(item.status.toUpperCase(), M, sy + 4, { width: BW, align: 'center', lineBreak: false });
+  doc.font('Helvetica-Bold').fontSize(10).fillColor(C.dark).text(item.item, TX, sy, { width: TW });
+  if (item.suggestion) {
+    doc.font('Helvetica').fontSize(9).fillColor(C.muted).text(item.suggestion, TX, doc.y, { width: TW });
+  }
+  if (doc.y < sy + BH + 4) doc.y = sy + BH + 4;
+  doc.moveDown(0.5);
+}
+
+function pdfLinkedinRec(doc: any, rec: { title: string; rationale: string; priority: string }, M: number, W: number, C: PdfColors) {
+  if (doc.y > doc.page.height - 80) doc.addPage();
+  const badgeColor = rec.priority === 'high' ? C.red : rec.priority === 'medium' ? C.orange : C.green;
+  const BW = 58, BH = 18, TX = M + BW + 10, TW = W - BW - 10;
+  const sy = doc.y;
+  doc.roundedRect(M, sy, BW, BH, 3).fillColor(badgeColor).fill();
+  doc.font('Helvetica-Bold').fontSize(8).fillColor('white')
+    .text(rec.priority.toUpperCase(), M, sy + 4, { width: BW, align: 'center', lineBreak: false });
+  doc.font('Helvetica-Bold').fontSize(10).fillColor(C.dark).text(rec.title, TX, sy, { width: TW });
+  doc.font('Helvetica').fontSize(9).fillColor(C.body).text(rec.rationale, TX, doc.y, { width: TW });
+  if (doc.y < sy + BH + 4) doc.y = sy + BH + 4;
+  doc.moveDown(0.8);
+}
+
+function pdfHeader(doc: any, subtitle: string, candidateName: string, M: number, W: number, C: PdfColors) {
+  const date = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+  doc.font('Helvetica-Bold').fontSize(22).fillColor(C.blue).text('Workita', M, M);
+  doc.font('Helvetica').fontSize(14).fillColor(C.dark).text(subtitle, M);
+  doc.font('Helvetica').fontSize(10).fillColor(C.muted).text(`${candidateName}  ·  ${date}`, M);
+  doc.moveDown(0.6);
+  doc.moveTo(M, doc.y).lineTo(M + W, doc.y).strokeColor(C.blue).lineWidth(1.5).stroke();
+  doc.moveDown(1);
+}
+
+async function generateCvAnalysisPdf(analysis: CvAnalysisResult, candidateName: string): Promise<Buffer> {
+  return new Promise<Buffer>((resolve, reject) => {
+    const PDFDocClass = require('pdfkit') as { new(opts?: Record<string, unknown>): any };
+    const doc = new PDFDocClass({ size: 'A4', margin: 50 });
+    const chunks: Buffer[] = [];
+    doc.on('data', (c: Buffer) => chunks.push(c));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+    const M = 50, W = doc.page.width - M * 2;
+    const C: PdfColors = {
+      blue: '#1a73e8', blueBg: '#e8f0fe', green: '#34a853',
+      amber: '#f9ab00', red: '#ea4335', dark: '#202124',
+      body: '#3c4043', muted: '#5f6368', border: '#e8eaed',
+    };
+    pdfHeader(doc, 'CV Analysis Report', candidateName, M, W, C);
+    pdfSectionTitle(doc, 'Skills', M, W, C);
+    pdfChips(doc, analysis.skills ?? [], M, W, C);
+    pdfSectionTitle(doc, 'Experience', M, W, C);
+    pdfBulletList(doc, analysis.experience ?? [], M, W, C);
+    pdfSectionTitle(doc, 'Education', M, W, C);
+    pdfBulletList(doc, analysis.education ?? [], M, W, C);
+    pdfSectionTitle(doc, 'Profile Gaps', M, W, C);
+    pdfBulletList(doc, analysis.gaps ?? [], M, W, C);
+    pdfSectionTitle(doc, 'ATS Feedback', M, W, C);
+    for (const item of (analysis.atsFeedback ?? [])) pdfAtsItem(doc, item, M, W, C);
+    doc.end();
+  });
+}
+
+async function generateLinkedinAnalysisPdf(analysis: LinkedinAnalysisResult, candidateName: string): Promise<Buffer> {
+  return new Promise<Buffer>((resolve, reject) => {
+    const PDFDocClass = require('pdfkit') as { new(opts?: Record<string, unknown>): any };
+    const doc = new PDFDocClass({ size: 'A4', margin: 50 });
+    const chunks: Buffer[] = [];
+    doc.on('data', (c: Buffer) => chunks.push(c));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+    const M = 50, W = doc.page.width - M * 2;
+    const C: PdfColors = {
+      blue: '#1a73e8', blueBg: '#e8f0fe', green: '#34a853', orange: '#fa7b17',
+      amber: '#f9ab00', red: '#ea4335', dark: '#202124',
+      body: '#3c4043', muted: '#5f6368', border: '#e8eaed',
+    };
+    pdfHeader(doc, 'LinkedIn Analysis Report', candidateName, M, W, C);
+    if (analysis.note) {
+      doc.font('Helvetica').fontSize(10).fillColor(C.muted).text(analysis.note, M, doc.y, { width: W });
+      doc.moveDown(0.8);
+    }
+    pdfSectionTitle(doc, 'Recommendations', M, W, C);
+    for (const rec of (analysis.recommendations ?? [])) pdfLinkedinRec(doc, rec, M, W, C);
+    doc.end();
+  });
+}
+
 import { passport } from './auth.js';
 import {
   pool,
@@ -156,6 +355,98 @@ app.post('/api/chat', requireAuth, async (req, res) => {
   }
 });
 
+app.get('/api/profile', requireAuth, async (req, res) => {
+  try {
+    const user = req.user as { id: string; name: string };
+    const { rows } = await pool.query(
+      `SELECT target_role, seniority, industry, location, work_mode, salary,
+              preferred_companies, cv_text, cv_filename, cv_file_type, linkedin_url, cv_analysis, linkedin_analysis
+       FROM profiles WHERE user_id = $1`,
+      [user.id]
+    );
+    res.json({ name: user.name, ...(rows[0] ?? {}) });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to load profile' });
+  }
+});
+
+app.post('/api/profile', requireAuth, async (req, res) => {
+  try {
+    const userId = (req.user as { id: string }).id;
+    const body = req.body as Record<string, string | undefined>;
+    const allowed = ['target_role', 'seniority', 'industry', 'location', 'work_mode', 'salary', 'preferred_companies', 'linkedin_url'] as const;
+    const fields: string[] = [];
+    const vals: (string | null)[] = [];
+    for (const f of allowed) {
+      if (f in body) { fields.push(f); vals.push(body[f] ?? null); }
+    }
+    if (fields.length === 0) { res.json({ ok: true }); return; }
+    const placeholders = fields.map((_, i) => `$${i + 2}`).join(', ');
+    const setClauses = fields.map((f, i) => `${f} = $${i + 2}`).join(', ');
+    await pool.query(
+      `INSERT INTO profiles (user_id, ${fields.join(', ')}, updated_at)
+       VALUES ($1, ${placeholders}, NOW())
+       ON CONFLICT (user_id) DO UPDATE SET ${setClauses}, updated_at = NOW()`,
+      [userId, ...vals]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to save profile' });
+  }
+});
+
+app.post('/api/profile/analyze-cv', requireAuth, async (req, res) => {
+  try {
+    const userId = (req.user as { id: string }).id;
+    const { rows } = await pool.query('SELECT cv_text FROM profiles WHERE user_id = $1', [userId]);
+    const cvText = rows[0]?.cv_text as string | undefined;
+    if (!cvText) {
+      res.status(400).json({ error: 'No CV text saved. Save your CV first.' });
+      return;
+    }
+    const result = await analyzeCv(cvText);
+    await pool.query(
+      'UPDATE profiles SET cv_analysis = $1, updated_at = NOW() WHERE user_id = $2',
+      [JSON.stringify(result), userId]
+    );
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'CV analysis failed' });
+  }
+});
+
+app.post('/api/profile/analyze-linkedin', requireAuth, async (req, res) => {
+  try {
+    const userId = (req.user as { id: string }).id;
+    const { rows } = await pool.query(
+      'SELECT cv_text, linkedin_url, target_role, seniority FROM profiles WHERE user_id = $1',
+      [userId]
+    );
+    const profile = rows[0];
+    if (!profile?.cv_text) {
+      res.status(400).json({ error: 'No CV found in your profile. Please upload your CV in the CV & Analysis section first.' });
+      return;
+    }
+    const result = await analyzeLinkedin(
+      profile.cv_text as string,
+      profile.linkedin_url as string | undefined,
+      profile.target_role as string | undefined,
+      profile.seniority as string | undefined,
+    );
+    await pool.query(
+      'UPDATE profiles SET linkedin_analysis = $1, updated_at = NOW() WHERE user_id = $2',
+      [JSON.stringify(result), userId]
+    );
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'LinkedIn analysis failed' });
+  }
+});
+
 app.get('/api/home', requireAuth, async (req, res) => {
   try {
     const userId = (req.user as { id: string }).id;
@@ -216,6 +507,132 @@ app.get('/api/home', requireAuth, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to load home data' });
+  }
+});
+
+app.post('/api/profile/upload-cv', requireAuth, upload.single('cv_file'), async (req, res) => {
+  try {
+    const file = req.file;
+    if (!file) { res.status(400).json({ error: 'No file uploaded.' }); return; }
+    if (file.size > MAX_CV_BYTES) { res.status(400).json({ error: 'File too large. Maximum size is 10 MB.' }); return; }
+
+    const fileType = detectFileType(file.buffer);
+    if (!fileType) {
+      res.status(400).json({ error: 'Unsupported format. Please upload a PDF or DOCX file.' });
+      return;
+    }
+
+    try {
+      await scanWithClamav(file.buffer);
+    } catch (err) {
+      const msg = (err as Error).message;
+      if (msg.startsWith('VIRUS_DETECTED:')) {
+        res.status(422).json({ error: 'Security scan failed: malicious content detected. Please upload a clean document.' });
+      } else if (msg.startsWith('SCANNER_UNAVAILABLE:')) {
+        res.status(503).json({ error: 'Security scanner is warming up. Please try again in a few minutes.' });
+      } else {
+        res.status(500).json({ error: 'Security scan error. Please try again.' });
+      }
+      return;
+    }
+
+    let cvText: string;
+    try {
+      cvText = await extractText(file.buffer, fileType);
+    } catch {
+      res.status(422).json({ error: 'Could not extract text from the document. Please try a different file.' });
+      return;
+    }
+
+    if (cvText.trim().length < 200) {
+      res.status(422).json({ error: 'The document appears to be empty or contains too little text. Please upload your CV.' });
+      return;
+    }
+
+    const isCV = await isCvContent(cvText);
+    if (!isCV) {
+      res.status(422).json({ error: 'This document does not look like a CV. Please upload your CV or résumé.' });
+      return;
+    }
+
+    const userId = (req.user as { id: string }).id;
+    const cvFilename = file.originalname;
+    const cvFileType = FILE_MIME[fileType];
+    await pool.query(
+      `INSERT INTO profiles (user_id, cv_text, cv_filename, cv_file, cv_file_type, cv_analysis, updated_at)
+       VALUES ($1, $2, $3, $4, $5, NULL, NOW())
+       ON CONFLICT (user_id) DO UPDATE SET
+         cv_text = EXCLUDED.cv_text,
+         cv_filename = EXCLUDED.cv_filename,
+         cv_file = EXCLUDED.cv_file,
+         cv_file_type = EXCLUDED.cv_file_type,
+         cv_analysis = NULL,
+         updated_at = NOW()`,
+      [userId, cvText, cvFilename, file.buffer, cvFileType]
+    );
+
+    res.json({ ok: true, cv_text: cvText, cv_filename: cvFilename });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Upload failed. Please try again.' });
+  }
+});
+
+app.get('/api/profile/cv-file', requireAuth, async (req, res) => {
+  try {
+    const userId = (req.user as { id: string }).id;
+    const { rows } = await pool.query(
+      'SELECT cv_file, cv_filename, cv_file_type FROM profiles WHERE user_id = $1',
+      [userId]
+    );
+    const row = rows[0];
+    if (!row?.cv_file) { res.status(404).json({ error: 'No CV on file.' }); return; }
+    const mimeType = row.cv_file_type || 'application/octet-stream';
+    const filename = row.cv_filename || 'cv';
+    res.setHeader('Content-Type', mimeType);
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(row.cv_file);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Download failed.' });
+  }
+});
+
+app.get('/api/profile/cv-analysis/download', requireAuth, async (req, res) => {
+  try {
+    const user = req.user as { id: string; name: string };
+    const { rows } = await pool.query(
+      'SELECT cv_analysis FROM profiles WHERE user_id = $1',
+      [user.id]
+    );
+    const analysis = rows[0]?.cv_analysis as CvAnalysisResult | undefined;
+    if (!analysis) { res.status(404).json({ error: 'No CV analysis available.' }); return; }
+    const pdf = await generateCvAnalysisPdf(analysis, user.name || 'Candidate');
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'attachment; filename="cv-analysis-report.pdf"');
+    res.send(pdf);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Download failed.' });
+  }
+});
+
+app.get('/api/profile/linkedin-analysis/download', requireAuth, async (req, res) => {
+  try {
+    const user = req.user as { id: string; name: string };
+    const { rows } = await pool.query(
+      'SELECT linkedin_analysis FROM profiles WHERE user_id = $1',
+      [user.id]
+    );
+    const analysis = rows[0]?.linkedin_analysis as LinkedinAnalysisResult | undefined;
+    if (!analysis) { res.status(404).json({ error: 'No LinkedIn analysis available.' }); return; }
+    const pdf = await generateLinkedinAnalysisPdf(analysis, user.name || 'Candidate');
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'attachment; filename="linkedin-analysis-report.pdf"');
+    res.send(pdf);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Download failed.' });
   }
 });
 
