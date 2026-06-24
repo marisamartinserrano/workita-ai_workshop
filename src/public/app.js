@@ -1,66 +1,64 @@
 let progress = {};
+let activeSection = null;
 let activeJourney = null;
 let messages = [];
 let currentUser = null;
+
+// Maps nav sections to AI journey IDs
+const SECTION_JOURNEY_MAP = {
+  'job-preferences': 'getting-started',
+  'cv-analysis': 'improve-cv',
+  'linkedin-analysis': 'improve-linkedin',
+  'quizzes': 'quizzes',
+};
+
+const PROFILE_SECTIONS = new Set(['job-preferences', 'cv-analysis', 'linkedin-analysis']);
+const CANDIDATURE_SECTIONS = new Set(['my-candidatures']);
 
 async function loadSession() {
   const data = await fetch('/api/session').then(r => r.json());
   progress = data.progress ?? {};
   currentUser = data.user ?? null;
   updateAuthUI();
-  updateJourneyButtons();
 }
 
 function updateAuthUI() {
-  const signInArea = document.getElementById('signInArea');
-  const userInfo = document.getElementById('userInfo');
+  const navUser = document.getElementById('navUser');
+  const navSignIn = document.getElementById('navSignIn');
 
   if (currentUser) {
-    signInArea.classList.add('hidden');
-    userInfo.classList.remove('hidden');
-    document.getElementById('userAvatar').src = currentUser.picture;
-    document.getElementById('userAvatar').alt = currentUser.name;
-    document.getElementById('userName').textContent = currentUser.name;
+    navUser.classList.remove('hidden');
+    navSignIn.classList.add('hidden');
+    document.getElementById('navAvatar').src = currentUser.picture;
+    document.getElementById('navAvatar').alt = currentUser.name;
+    document.getElementById('navUserName').textContent = currentUser.name;
   } else {
-    signInArea.classList.remove('hidden');
-    userInfo.classList.add('hidden');
+    navUser.classList.add('hidden');
+    navSignIn.classList.remove('hidden');
   }
+
+  updateNavItems();
 }
 
-async function saveProgress(journeyId, status) {
-  progress[journeyId] = status;
-  updateJourneyButtons();
-  await fetch('/api/progress', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ journeyId, status }),
-  });
-}
-
-function isGettingStartedDone() {
-  return progress['getting-started'] === 'completed';
-}
-
-function updateJourneyButtons() {
-  document.querySelectorAll('.journey-btn').forEach(btn => {
-    const id = btn.dataset.journey;
-    btn.classList.remove('active', 'completed', 'gated');
-
-    if (!currentUser) {
-      btn.classList.add('gated');
-      btn.title = 'Sign in to get started';
-      return;
-    }
-
-    if (id === activeJourney) btn.classList.add('active');
-    if (progress[id] === 'completed') btn.classList.add('completed');
-    if (id !== 'getting-started' && !isGettingStartedDone()) {
-      btn.classList.add('gated');
-      btn.title = 'Complete Getting Started first';
+function updateNavItems() {
+  document.querySelectorAll('.nav-item[data-section]').forEach(item => {
+    const section = item.dataset.section;
+    const isActive = section === activeSection;
+    item.classList.toggle('active', isActive);
+    if (isActive) {
+      item.setAttribute('aria-current', 'page');
     } else {
-      btn.title = btn.dataset.tooltip || '';
+      item.removeAttribute('aria-current');
     }
   });
+}
+
+function setGroupExpanded(groupId, expanded) {
+  const toggle = document.querySelector(`[data-group="${groupId}"]`);
+  const items = document.getElementById(`group-${groupId}`);
+  if (!toggle || !items) return;
+  toggle.setAttribute('aria-expanded', String(expanded));
+  items.classList.toggle('expanded', expanded);
 }
 
 function addBubble(role, text) {
@@ -99,35 +97,143 @@ async function callChat(msgs) {
   return res.json();
 }
 
-async function startJourney(journeyId) {
+async function saveProgress(journeyId, status) {
+  progress[journeyId] = status;
+  await fetch('/api/progress', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ journeyId, status }),
+  });
+}
+
+function matchBadgeClass(pct) {
+  if (pct === null || pct === undefined) return 'none';
+  if (pct >= 75) return 'green';
+  if (pct >= 50) return 'amber';
+  return 'red';
+}
+
+function renderHome(data) {
+  const { user, stats, candidatures } = data;
+
+  const firstName = (user.name || '').split(' ')[0];
+  document.getElementById('homeWelcome').textContent = `Welcome back, ${firstName}!`;
+
+  document.getElementById('statTotal').textContent = stats.total;
+  document.getElementById('statInterviews').textContent = stats.interviews;
+  document.getElementById('statOffers').textContent = stats.offers;
+  document.getElementById('statAvgMatch').textContent =
+    stats.avgMatch !== null ? `${stats.avgMatch}%` : '—';
+
+  const list = document.getElementById('candidaturesList');
+  const empty = document.getElementById('homeEmpty');
+
+  // Remove existing candidature cards (keep empty state)
+  list.querySelectorAll('.candidature-card').forEach(el => el.remove());
+
+  if (candidatures.length === 0) {
+    empty.classList.remove('hidden');
+  } else {
+    empty.classList.add('hidden');
+    for (const c of candidatures) {
+      const card = document.createElement('div');
+      card.className = 'candidature-card';
+      const badgeClass = matchBadgeClass(c.match_pct);
+      const matchText = c.match_pct !== null ? `${c.match_pct}%` : 'N/A';
+      const stage = c.current_stage || c.status || '—';
+      card.innerHTML = `
+        <div class="candidature-info">
+          <div class="candidature-title">${c.job_title}</div>
+          <div class="candidature-company">${c.company}</div>
+          <div class="candidature-stage">${stage}</div>
+        </div>
+        <span class="match-badge ${badgeClass}">${matchText}</span>
+      `;
+      list.insertBefore(card, empty);
+    }
+  }
+}
+
+async function navigateTo(section) {
   const placeholder = document.getElementById('chatPlaceholder');
   const chatWindow = document.getElementById('chatWindow');
   const inputArea = document.getElementById('inputArea');
   const uploadRow = document.getElementById('uploadRow');
+  const homeSection = document.getElementById('homeSection');
 
   placeholder.classList.add('hidden');
-  chatWindow.classList.add('visible');
+  homeSection.classList.add('hidden');
+  chatWindow.classList.remove('visible');
   chatWindow.innerHTML = '';
+  inputArea.classList.remove('visible');
+  activeJourney = null;
+
+  // Close mobile drawer
+  document.body.classList.remove('nav-open');
+
+  activeSection = section;
+  updateNavItems();
+
+  // Auto-expand parent groups
+  if (PROFILE_SECTIONS.has(section)) setGroupExpanded('profile', true);
+  if (CANDIDATURE_SECTIONS.has(section) || section.startsWith('candidature')) setGroupExpanded('candidatures', true);
+
+  if (section === 'home') {
+    homeSection.classList.remove('hidden');
+    const signInState = document.getElementById('homeSignIn');
+    const dashboard = document.getElementById('homeDashboard');
+
+    if (!currentUser) {
+      signInState.classList.remove('hidden');
+      dashboard.classList.add('hidden');
+      return;
+    }
+
+    signInState.classList.add('hidden');
+    dashboard.classList.remove('hidden');
+
+    try {
+      const data = await fetch('/api/home').then(r => r.json());
+      renderHome(data);
+    } catch {
+      homeSection.classList.add('hidden');
+      chatWindow.classList.add('visible');
+      addBubble('model', 'Failed to load Home. Please try again.');
+    }
+    return;
+  }
 
   if (!currentUser) {
-    inputArea.classList.remove('visible');
-    addBubble('model', 'Please **sign in with Google** to start this journey.');
+    chatWindow.classList.add('visible');
+    addBubble('model', 'Please **sign in with Google** to get started.');
+    return;
+  }
+
+  chatWindow.classList.add('visible');
+
+  const journeyId = SECTION_JOURNEY_MAP[section];
+
+  if (!journeyId) {
+    const labels = {
+      'my-candidatures': 'My Candidatures',
+      closing: 'Closing',
+      glossary: 'Glossary',
+    };
+    const name = labels[section] || section;
+    addBubble('model', `**${name}** is coming soon. Stay tuned!`);
+    return;
+  }
+
+  if (journeyId !== 'getting-started' && progress['getting-started'] !== 'completed') {
+    addBubble('model', 'Please complete **Job Preferences** first to provide us with the necessary information about your background and preferences.');
     return;
   }
 
   activeJourney = journeyId;
   messages = [];
-
   inputArea.classList.add('visible');
   uploadRow.classList.toggle('hidden', journeyId !== 'getting-started');
   document.getElementById('uploadStatus').textContent = '';
-
-  updateJourneyButtons();
-
-  if (journeyId !== 'getting-started' && !isGettingStartedDone()) {
-    addBubble('model', 'Please complete the **Getting Started** journey first to provide us with the necessary information about your background and preferences.');
-    return;
-  }
 
   const existing = await fetch(`/api/messages?journey=${journeyId}`).then(r => r.json());
 
@@ -224,8 +330,37 @@ document.getElementById('cvUpload').addEventListener('change', async function ()
   }
 });
 
-document.querySelectorAll('.journey-btn').forEach(btn => {
-  btn.addEventListener('click', () => startJourney(btn.dataset.journey));
+// Nav item clicks
+document.querySelectorAll('.nav-item[data-section]').forEach(item => {
+  item.addEventListener('click', e => {
+    e.preventDefault();
+    navigateTo(item.dataset.section);
+  });
+  item.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      navigateTo(item.dataset.section);
+    }
+  });
+});
+
+// Collapsible group toggles
+document.querySelectorAll('.nav-group-toggle').forEach(toggle => {
+  toggle.addEventListener('click', () => {
+    const group = toggle.dataset.group;
+    const expanded = toggle.getAttribute('aria-expanded') === 'true';
+    setGroupExpanded(group, !expanded);
+  });
+});
+
+// Hamburger toggle
+document.getElementById('navHamburger').addEventListener('click', () => {
+  document.body.classList.toggle('nav-open');
+});
+
+// Backdrop closes mobile drawer
+document.getElementById('navBackdrop').addEventListener('click', () => {
+  document.body.classList.remove('nav-open');
 });
 
 function initCookieConsent() {
@@ -253,5 +388,16 @@ function initCookieConsent() {
   });
 }
 
-loadSession();
+// Quick-action buttons on the Home section
+document.getElementById('qaNewCandidature').addEventListener('click', () => navigateTo('my-candidatures'));
+document.getElementById('qaFirstCandidature').addEventListener('click', () => navigateTo('my-candidatures'));
+document.getElementById('qaUpdateProfile').addEventListener('click', () => navigateTo('job-preferences'));
+document.getElementById('qaPracticeQuizzes').addEventListener('click', () => navigateTo('quizzes'));
+
+async function init() {
+  await loadSession();
+  navigateTo('home');
+}
+
+init();
 initCookieConsent();

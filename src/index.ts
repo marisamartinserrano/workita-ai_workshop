@@ -156,6 +156,69 @@ app.post('/api/chat', requireAuth, async (req, res) => {
   }
 });
 
+app.get('/api/home', requireAuth, async (req, res) => {
+  try {
+    const userId = (req.user as { id: string }).id;
+
+    const [statsResult, candidaturesResult] = await Promise.all([
+      pool.query<{
+        total: string;
+        interviews: string;
+        offers: string;
+        avg_match: string | null;
+      }>(
+        `SELECT
+           COUNT(*)::int AS total,
+           COUNT(*) FILTER (
+             WHERE id IN (
+               SELECT DISTINCT candidature_id FROM candidature_stages
+               WHERE stage_name ILIKE '%interview%'
+             )
+           )::int AS interviews,
+           COUNT(*) FILTER (WHERE status = 'offer')::int AS offers,
+           ROUND(AVG(match_pct))::int AS avg_match
+         FROM candidatures WHERE user_id = $1`,
+        [userId]
+      ),
+      pool.query<{
+        id: string;
+        job_title: string;
+        company: string;
+        status: string;
+        match_pct: number | null;
+        current_stage: string | null;
+      }>(
+        `SELECT c.id, c.job_title, c.company, c.status, c.match_pct,
+                cs.stage_name AS current_stage
+         FROM candidatures c
+         LEFT JOIN LATERAL (
+           SELECT stage_name FROM candidature_stages
+           WHERE candidature_id = c.id
+           ORDER BY entered_at DESC LIMIT 1
+         ) cs ON true
+         WHERE c.user_id = $1
+         ORDER BY c.created_at DESC`,
+        [userId]
+      ),
+    ]);
+
+    const s = statsResult.rows[0];
+    res.json({
+      user: req.user,
+      stats: {
+        total: Number(s.total),
+        interviews: Number(s.interviews),
+        offers: Number(s.offers),
+        avgMatch: s.avg_match !== null ? Number(s.avg_match) : null,
+      },
+      candidatures: candidaturesResult.rows,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to load home data' });
+  }
+});
+
 app.post('/api/upload', requireAuth, upload.single('cv'), async (req, res) => {
   try {
     const sessionId = req.session.sessionId as string;

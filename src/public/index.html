@@ -9,102 +9,139 @@
   <body>
     <div class="app">
       <header class="header">
+        <button class="nav-hamburger" id="navHamburger" aria-label="Open navigation" aria-controls="sidebar">&#9776;</button>
         <div class="header-brand">
           <h1>Workita</h1>
           <p>Your AI Job Companion</p>
         </div>
-        <div id="signInArea">
-          <a href="/auth/google" class="sign-in-btn">Sign in with Google</a>
-        </div>
-        <div class="user-info hidden" id="userInfo">
-          <img class="user-avatar" id="userAvatar" src="" alt="" />
-          <span class="user-name" id="userName"></span>
-          <a href="/auth/logout" class="sign-out-btn">Sign out</a>
-        </div>
       </header>
 
       <div class="main">
-        <nav class="journey-panel">
-          <div class="block">
-            <h2 class="block-title">Getting Started</h2>
-            <button class="journey-btn" data-journey="getting-started"
-              data-tooltip="Guidance on CV submission and role selection — the first step of your journey.">
-              Getting Started
-            </button>
-            <button class="journey-btn" data-journey="quizzes"
-              data-tooltip="Interactive quizzes to build your professional knowledge and prepare for interviews.">
-              Quizzes
-            </button>
-          </div>
+        <div class="nav-backdrop" id="navBackdrop"></div>
 
-          <div class="block">
-            <h2 class="block-title">Application</h2>
-            <button class="journey-btn" data-journey="improve-cv"
-              data-tooltip="Optimize your CV for the role, company, and ATS systems with personalized guidance.">
-              Improve CV
-            </button>
-            <button class="journey-btn" data-journey="improve-linkedin"
-              data-tooltip="Optimize your LinkedIn profile to attract recruiters and align it with your CV.">
-              Improve LinkedIn
-            </button>
-          </div>
+        <nav class="sidebar" id="sidebar" aria-label="Main navigation">
+          <ul class="nav-list" role="list">
 
-          <div class="block">
-            <h2 class="block-title">Interview Preparation</h2>
-            <button class="journey-btn" data-journey="interview-recruiter"
-              data-tooltip="Practise a simulated recruiter screening call with AI-powered feedback.">
-              Recruiter Interview
-            </button>
-            <button class="journey-btn" data-journey="interview-technical"
-              data-tooltip="Prepare for technical questions tailored to your role with detailed feedback.">
-              Technical Interview
-            </button>
-            <button class="journey-btn" data-journey="interview-usecase"
-              data-tooltip="Practise solving real-world case studies relevant to your target role.">
-              Use Case Interview
-            </button>
-            <button class="journey-btn" data-journey="interview-team"
-              data-tooltip="Simulate a team interview focusing on collaboration, agile, and ways of working.">
-              Team Interview
-            </button>
-            <button class="journey-btn" data-journey="interview-hiring-manager"
-              data-tooltip="Prepare for an in-depth interview with a simulated hiring manager.">
-              Hiring Manager
-            </button>
-            <button class="journey-btn" data-journey="interview-culture"
-              data-tooltip="Practise articulating your values and fit with the company culture.">
-              Culture Fit
-            </button>
-            <button class="journey-btn" data-journey="interview-stakeholder"
-              data-tooltip="Develop your stakeholder management and communication skills.">
-              Stakeholder Interview
-            </button>
-          </div>
+            <li>
+              <a class="nav-item" data-section="home" href="#" tabindex="0">
+                <span class="nav-icon" aria-hidden="true">🏠</span>
+                <span class="nav-label">Home</span>
+              </a>
+            </li>
 
-          <div class="block">
-            <h2 class="block-title">Closing</h2>
-            <button class="journey-btn" data-journey="salary-negotiation"
-              data-tooltip="Get data-driven guidance on negotiating your salary and benefits package.">
-              Salary Negotiation
-            </button>
-            <button class="journey-btn" data-journey="counteroffer-handling"
-              data-tooltip="Navigate counteroffers from your current employer with confidence.">
-              Counteroffer Handling
-            </button>
-            <button class="journey-btn" data-journey="feedback"
-              data-tooltip="Receive personalized guidance based on interview feedback to improve your chances.">
-              Feedback
-            </button>
+            <li class="nav-group">
+              <button class="nav-group-toggle" data-group="profile" aria-expanded="false" aria-controls="group-profile">
+                <span class="nav-icon" aria-hidden="true">👤</span>
+                <span class="nav-label">Profile</span>
+                <span class="nav-chevron" aria-hidden="true">▾</span>
+              </button>
+              <ul class="nav-group-items" id="group-profile" role="list">
+                <li><a class="nav-item nav-subitem" data-section="job-preferences" href="#" tabindex="0"><span class="nav-label">Job Preferences</span></a></li>
+                <li><a class="nav-item nav-subitem" data-section="cv-analysis" href="#" tabindex="0"><span class="nav-label">CV Analysis</span></a></li>
+                <li><a class="nav-item nav-subitem" data-section="linkedin-analysis" href="#" tabindex="0"><span class="nav-label">LinkedIn Analysis</span></a></li>
+              </ul>
+            </li>
+
+            <li class="nav-group">
+              <button class="nav-group-toggle" data-group="candidatures" aria-expanded="false" aria-controls="group-candidatures">
+                <span class="nav-icon" aria-hidden="true">📋</span>
+                <span class="nav-label">Candidatures</span>
+                <span class="nav-chevron" aria-hidden="true">▾</span>
+              </button>
+              <ul class="nav-group-items" id="group-candidatures" role="list">
+                <li><a class="nav-item nav-subitem" data-section="my-candidatures" href="#" tabindex="0"><span class="nav-label">📋 My Candidatures</span></a></li>
+              </ul>
+            </li>
+
+            <li>
+              <a class="nav-item" data-section="closing" href="#" tabindex="0">
+                <span class="nav-icon" aria-hidden="true">🤝</span>
+                <span class="nav-label">Closing</span>
+              </a>
+            </li>
+
+            <li>
+              <a class="nav-item" data-section="glossary" href="#" tabindex="0">
+                <span class="nav-icon" aria-hidden="true">📖</span>
+                <span class="nav-label">Glossary</span>
+              </a>
+            </li>
+
+            <li>
+              <a class="nav-item" data-section="quizzes" href="#" tabindex="0">
+                <span class="nav-icon" aria-hidden="true">🧩</span>
+                <span class="nav-label">Quizzes</span>
+              </a>
+            </li>
+
+          </ul>
+
+          <div class="nav-footer">
+            <div class="nav-user hidden" id="navUser">
+              <img class="nav-avatar" id="navAvatar" src="" alt="" />
+              <div class="nav-user-info">
+                <span class="nav-user-name" id="navUserName"></span>
+                <a href="/auth/logout" class="nav-logout">Sign out</a>
+              </div>
+            </div>
+            <div class="nav-signin" id="navSignIn">
+              <a href="/auth/google" class="sign-in-btn">Sign in with Google</a>
+            </div>
           </div>
         </nav>
 
         <div class="chat-section">
           <div class="chat-placeholder" id="chatPlaceholder">
-            <p>Select a journey to get started</p>
+            <p>Select a section to get started</p>
           </div>
+
+          <div id="homeSection" class="content-section hidden">
+            <div class="home-signin-state hidden" id="homeSignIn">
+              <h2>Welcome to Workita</h2>
+              <p>Your AI-powered job search companion. Sign in to track your applications, prepare for interviews, and land your next role.</p>
+              <a href="/auth/google" class="sign-in-btn">Sign in with Google</a>
+            </div>
+
+            <div id="homeDashboard" class="hidden">
+              <h2 class="home-welcome" id="homeWelcome"></h2>
+
+              <div class="stats-grid">
+                <div class="stat-card">
+                  <span class="stat-label">Applications</span>
+                  <span class="stat-value" id="statTotal">—</span>
+                </div>
+                <div class="stat-card">
+                  <span class="stat-label">Interviews</span>
+                  <span class="stat-value" id="statInterviews">—</span>
+                </div>
+                <div class="stat-card">
+                  <span class="stat-label">Offers</span>
+                  <span class="stat-value" id="statOffers">—</span>
+                </div>
+                <div class="stat-card">
+                  <span class="stat-label">Avg Match</span>
+                  <span class="stat-value" id="statAvgMatch">—</span>
+                </div>
+              </div>
+
+              <div class="quick-actions">
+                <button class="quick-action-btn" id="qaNewCandidature">＋ New Candidature</button>
+                <button class="quick-action-btn" id="qaUpdateProfile">👤 Update Profile</button>
+                <button class="quick-action-btn" id="qaPracticeQuizzes">🧩 Practice Quizzes</button>
+              </div>
+
+              <div id="candidaturesList">
+                <div class="empty-state hidden" id="homeEmpty">
+                  <p>No candidatures yet.</p>
+                  <button class="quick-action-btn" id="qaFirstCandidature">Create your first candidature</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div class="chat-window" id="chatWindow"></div>
           <div class="input-area" id="inputArea">
-            <div class="upload-row" id="uploadRow">
+            <div class="upload-row hidden" id="uploadRow">
               <label for="cvUpload" class="upload-label">Upload CV</label>
               <input type="file" id="cvUpload" accept=".pdf,.doc,.docx" />
               <span id="uploadStatus"></span>
@@ -122,6 +159,7 @@
         </div>
       </div>
     </div>
+
     <!-- Cookie Consent Banner -->
     <div class="cookie-banner hidden" id="cookieBanner" role="region" aria-label="Cookie consent">
       <p class="cookie-text">

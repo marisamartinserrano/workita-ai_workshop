@@ -39,3 +39,20 @@ CREATE TABLE IF NOT EXISTS cv_uploads (
   content BYTEA,
   uploaded_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS candidatures (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  job_title VARCHAR(500) NOT NULL,
+  company VARCHAR(255) NOT NULL,
+  status VARCHAR(50) NOT NULL DEFAULT 'active',
+  match_pct INTEGER,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS candidature_stages (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  candidature_id UUID NOT NULL REFERENCES candidatures(id) ON DELETE CASCADE,
+  stage_name VARCHAR(100) NOT NULL,
+  entered_at TIMESTAMPTZ DEFAULT NOW()
+);
