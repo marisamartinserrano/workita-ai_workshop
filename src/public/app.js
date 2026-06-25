@@ -10,7 +10,7 @@ const SECTION_JOURNEY_MAP = {
 };
 
 const PROFILE_SECTIONS = new Set(['job-preferences', 'cv-analysis', 'linkedin-analysis']);
-const CANDIDATURE_SECTIONS = new Set(['my-candidatures', 'selection-process-nav']);
+const CANDIDATURE_SECTIONS = new Set(['my-candidatures', 'selection-process']);
 
 async function loadSession() {
   const data = await fetch('/api/session').then(r => r.json());
@@ -537,12 +537,8 @@ async function navigateTo(section) {
     'cv-analysis': 'cvAnalysisSection',
     'linkedin-analysis': 'linkedinSection',
     'my-candidatures': 'myCandidaturesSection',
+    'selection-process': 'selectionProcessSection',
   };
-
-  if (section === 'selection-process-nav') {
-    navigateTo('my-candidatures');
-    return;
-  }
 
   if (section in PROFILE_SECTION_IDS) {
     if (!currentUser) {
@@ -556,6 +552,10 @@ async function navigateTo(section) {
     if (section === 'my-candidatures') {
       showCandView('candListView');
       await loadCandidatures();
+      return;
+    }
+    if (section === 'selection-process') {
+      await loadSelectionProcess();
       return;
     }
     await loadProfile();
@@ -1223,8 +1223,9 @@ document.getElementById('qaPracticeQuizzes').addEventListener('click', () => nav
 
 let spCandidatureId = null;
 let spStages = [];
-let spSelectedStageId = null;
+let spExpandedStageId = null;
 let spNotesTimer = null;
+let spSelectListenerAdded = false;
 
 function getActiveStageId(stages) {
   const scheduled = stages.find(s => s.status === 'scheduled');
@@ -1245,154 +1246,214 @@ function escapeHtml(text) {
     .replace(/"/g, '&quot;');
 }
 
+// Called from "Track" buttons — pre-selects a specific candidature then navigates
 async function openSelectionProcess(candidatureId) {
   spCandidatureId = candidatureId;
-  spSelectedStageId = null;
-  spStages = [];
-
-  document.getElementById('chatPlaceholder').classList.add('hidden');
-  document.getElementById('homeSection').classList.add('hidden');
-  document.getElementById('jobPreferencesSection').classList.add('hidden');
-  document.getElementById('cvAnalysisSection').classList.add('hidden');
-  document.getElementById('linkedinSection').classList.add('hidden');
-  document.getElementById('myCandidaturesSection').classList.add('hidden');
-  document.getElementById('selectionProcessSection').classList.add('hidden');
-  const chatWindow = document.getElementById('chatWindow');
-  chatWindow.classList.remove('visible');
-  chatWindow.innerHTML = '';
-  document.getElementById('inputArea').classList.remove('visible');
-  activeJourney = null;
-  activeSection = null;
-  document.body.classList.remove('nav-open');
-  updateNavItems();
-
-  document.getElementById('selectionProcessSection').classList.remove('hidden');
-
-  try {
-    const cand = await fetch(`/api/candidatures/${candidatureId}`).then(r => r.json());
-    if (!cand.error) {
-      document.getElementById('spTitle').textContent = `${cand.job_title} at ${cand.company}`;
-      const meta = [cand.seniority, cand.location, cand.work_mode].filter(Boolean).join(' · ');
-      document.getElementById('spMeta').textContent = meta;
-    }
-  } catch {}
-
-  await loadSpStages();
+  await navigateTo('selection-process');
 }
 
-async function loadSpStages() {
+// Called by navigateTo when section = 'selection-process'
+async function loadSelectionProcess() {
+  const selectEl = document.getElementById('spCandidatureSelect');
+  const accordion = document.getElementById('spStageAccordion');
+  selectEl.innerHTML = '<option value="">Loading candidatures…</option>';
+  accordion.innerHTML = '';
+
   try {
-    const data = await fetch(`/api/candidatures/${spCandidatureId}/stages`).then(r => r.json());
-    spStages = data.stages || [];
-    renderStageList();
-    const activeId = getActiveStageId(spStages);
-    if (activeId) selectStage(activeId);
+    const data = await fetch('/api/candidatures').then(r => r.json());
+    const candidatures = data.candidatures || [];
+
+    if (candidatures.length === 0) {
+      selectEl.innerHTML = '<option value="">No candidatures yet</option>';
+      accordion.innerHTML = '<p class="sp-empty">No candidatures yet. <a id="spGoToCand" href="#">Add your first candidature</a> to start tracking your selection process.</p>';
+      document.getElementById('spGoToCand')?.addEventListener('click', e => {
+        e.preventDefault();
+        navigateTo('my-candidatures');
+      });
+      return;
+    }
+
+    selectEl.innerHTML = candidatures
+      .map(c => `<option value="${c.id}">${escapeHtml(c.job_title)} at ${escapeHtml(c.company)}</option>`)
+      .join('');
+
+    // Pre-select: honour spCandidatureId if it exists in the list, else most recent
+    const ids = candidatures.map(c => c.id);
+    const targetId = (spCandidatureId && ids.includes(spCandidatureId))
+      ? spCandidatureId
+      : candidatures[0].id;
+    selectEl.value = targetId;
+    spCandidatureId = targetId;
+
+    if (!spSelectListenerAdded) {
+      spSelectListenerAdded = true;
+      selectEl.addEventListener('change', async () => {
+        spCandidatureId = selectEl.value;
+        spExpandedStageId = null;
+        await loadSpStages();
+      });
+    }
+
+    await loadSpStages();
   } catch {
-    document.getElementById('spStageList').innerHTML =
-      '<p style="color:#80868b;font-size:0.875rem;padding:8px">Failed to load stages.</p>';
+    selectEl.innerHTML = '<option value="">Failed to load</option>';
   }
 }
 
-function renderStageList() {
-  const list = document.getElementById('spStageList');
-  if (!list) return;
+async function loadSpStages() {
+  const accordion = document.getElementById('spStageAccordion');
+  if (!accordion || !spCandidatureId) return;
+  accordion.innerHTML = '<p class="sp-loading">Loading stages…</p>';
+  try {
+    const data = await fetch(`/api/candidatures/${spCandidatureId}/stages`).then(r => r.json());
+    spStages = data.stages || [];
+    renderStageAccordion();
+  } catch {
+    accordion.innerHTML = '<p class="sp-empty">Failed to load stages. Please try again.</p>';
+  }
+}
+
+function renderStageAccordion() {
+  const accordion = document.getElementById('spStageAccordion');
+  if (!accordion) return;
+
   const activeId = getActiveStageId(spStages);
-  list.innerHTML = '';
-  spStages.forEach(stage => {
+  if (!spExpandedStageId) spExpandedStageId = activeId;
+
+  accordion.innerHTML = '';
+
+  spStages.forEach((stage, idx) => {
+    const isExpanded = stage.id === spExpandedStageId;
+    const isActive = stage.id === activeId;
+
     const item = document.createElement('div');
-    const isSelected = stage.id === spSelectedStageId;
-    const isCurrent = stage.id === activeId;
-    item.className = `sp-stage-item${isSelected ? ' selected' : ''}${isCurrent ? ' current' : ''}`;
+    item.className = `sp-accordion-item${isActive ? ' current' : ''}${isExpanded ? ' expanded' : ''}`;
+    item.dataset.stageId = stage.id;
+
     item.innerHTML = `
-      <span class="sp-stage-name">${escapeHtml(stage.stage_name)}</span>
-      <span class="sp-stage-status-pill ${stage.status}">${stage.status}</span>
+      <button class="sp-accordion-header" type="button">
+        <span class="sp-accordion-num">${idx + 1}</span>
+        <span class="sp-accordion-name">${escapeHtml(stage.stage_name)}</span>
+        <span class="sp-stage-status-pill ${stage.status}">${stage.status}</span>
+        <span class="sp-accordion-chevron">&#9660;</span>
+      </button>
+      <div class="sp-accordion-body">
+        ${renderStageBody(stage)}
+      </div>
     `;
-    item.addEventListener('click', () => selectStage(stage.id));
-    list.appendChild(item);
+
+    item.querySelector('.sp-accordion-header').addEventListener('click', () => {
+      toggleAccordion(stage.id);
+    });
+
+    accordion.appendChild(item);
+    wireStageBody(item, stage);
   });
 }
 
-function selectStage(stageId) {
-  spSelectedStageId = stageId;
-  renderStageList();
-  const stage = spStages.find(s => s.id === stageId);
-  if (stage) renderStageDetail(stage);
+function toggleAccordion(stageId) {
+  spExpandedStageId = spExpandedStageId === stageId ? null : stageId;
+  document.querySelectorAll('.sp-accordion-item').forEach(item => {
+    item.classList.toggle('expanded', item.dataset.stageId === spExpandedStageId);
+  });
 }
 
-function renderStageDetail(stage) {
-  const detail = document.getElementById('spStageDetail');
-  if (!detail) return;
-
-  const fmt = (iso) => iso
+function renderStageBody(stage) {
+  const fmt = iso => iso
     ? new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
     : null;
   const scheduledDate = fmt(stage.scheduled_at);
   const completedDate = fmt(stage.completed_at);
 
-  detail.innerHTML = `
-    <div class="sp-detail-header">
-      <h3 class="sp-detail-title">${escapeHtml(stage.stage_name)}</h3>
-      <select class="sp-status-select" id="spStatusSelect">
-        <option value="pending"   ${stage.status === 'pending'   ? 'selected' : ''}>Pending</option>
-        <option value="scheduled" ${stage.status === 'scheduled' ? 'selected' : ''}>Scheduled</option>
-        <option value="completed" ${stage.status === 'completed' ? 'selected' : ''}>Completed</option>
-        <option value="skipped"   ${stage.status === 'skipped'   ? 'selected' : ''}>Skipped</option>
-      </select>
-    </div>
-    ${scheduledDate || completedDate ? `
-    <div class="sp-dates">
-      ${scheduledDate ? `<span>Scheduled: ${scheduledDate}</span>` : ''}
-      ${completedDate ? `<span>Completed: ${completedDate}</span>` : ''}
-    </div>` : ''}
-    <div class="sp-notes-section">
-      <label class="sp-notes-label">Notes</label>
-      <textarea class="sp-notes" id="spNotes" rows="5" maxlength="2000"
-        placeholder="Interview questions asked, feedback received, personal thoughts…">${escapeHtml(stage.notes || '')}</textarea>
-      <span class="sp-notes-saved hidden" id="spNotesSaved">&#10003; Saved</span>
-    </div>
-    <div class="form-row" style="margin-top:4px">
-      <button class="save-btn" id="spGetPrepBtn" type="button">Get Interview Prep</button>
-    </div>
-    <div class="upload-status hidden" id="spPrepStatus">
-      <div class="upload-status-row">
-        <div class="upload-spinner"></div>
-        <span>Generating interview prep with AI…</span>
+  return `
+    <div class="sp-body-inner">
+      <div class="sp-body-top">
+        <div class="sp-field-group">
+          <label class="sp-field-label">Status</label>
+          <select class="sp-status-select" data-stage-id="${stage.id}">
+            <option value="pending"   ${stage.status === 'pending'   ? 'selected' : ''}>Pending</option>
+            <option value="scheduled" ${stage.status === 'scheduled' ? 'selected' : ''}>Scheduled</option>
+            <option value="completed" ${stage.status === 'completed' ? 'selected' : ''}>Completed</option>
+            <option value="skipped"   ${stage.status === 'skipped'   ? 'selected' : ''}>Skipped</option>
+          </select>
+        </div>
+        ${scheduledDate || completedDate ? `
+        <div class="sp-dates">
+          ${scheduledDate ? `<span>Scheduled: <strong>${scheduledDate}</strong></span>` : ''}
+          ${completedDate ? `<span>Completed: <strong>${completedDate}</strong></span>` : ''}
+        </div>` : ''}
       </div>
+      <div class="sp-notes-section">
+        <label class="sp-field-label">Notes</label>
+        <textarea class="sp-notes" data-stage-id="${stage.id}" rows="4" maxlength="2000"
+          placeholder="Interview questions asked, feedback received, personal thoughts…">${escapeHtml(stage.notes || '')}</textarea>
+        <span class="sp-notes-saved hidden" data-stage-saved="${stage.id}">&#10003; Saved</span>
+      </div>
+      <div class="form-row" style="margin-top:8px">
+        <button class="save-btn sp-prep-btn" data-stage-id="${stage.id}" type="button">Get Interview Prep</button>
+      </div>
+      <div class="upload-status hidden sp-prep-status" data-stage-id="${stage.id}">
+        <div class="upload-status-row">
+          <div class="upload-spinner"></div>
+          <span>Generating interview prep with AI…</span>
+        </div>
+      </div>
+      <div class="sp-prep-content" data-stage-id="${stage.id}"></div>
     </div>
-    <div id="spPrepContent"></div>
   `;
+}
 
-  document.getElementById('spStatusSelect').addEventListener('change', async (e) => {
+function wireStageBody(item, stage) {
+  item.querySelector('.sp-status-select').addEventListener('change', async (e) => {
     const newStatus = e.target.value;
     await updateSpStage(stage.id, { status: newStatus });
+
     const s = spStages.find(s => s.id === stage.id);
     if (s) {
       s.status = newStatus;
       if (newStatus === 'scheduled' && !s.scheduled_at) s.scheduled_at = new Date().toISOString();
       if (newStatus === 'completed' && !s.completed_at) s.completed_at = new Date().toISOString();
-      renderStageList();
-      renderStageDetail(s);
+    }
+
+    // Update header pill
+    const pill = item.querySelector('.sp-stage-status-pill');
+    if (pill) { pill.className = `sp-stage-status-pill ${newStatus}`; pill.textContent = newStatus; }
+
+    // Refresh current-stage highlight across all items
+    const activeId = getActiveStageId(spStages);
+    document.querySelectorAll('.sp-accordion-item').forEach(el => {
+      el.classList.toggle('current', el.dataset.stageId === activeId);
+    });
+
+    // Update dates inline
+    const updatedStage = spStages.find(s => s.id === stage.id);
+    if (updatedStage) {
+      const fmt = iso => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+      const bodyTop = item.querySelector('.sp-body-top');
+      let datesEl = bodyTop.querySelector('.sp-dates');
+      if (updatedStage.scheduled_at || updatedStage.completed_at) {
+        const html = `<div class="sp-dates">
+          ${updatedStage.scheduled_at ? `<span>Scheduled: <strong>${fmt(updatedStage.scheduled_at)}</strong></span>` : ''}
+          ${updatedStage.completed_at ? `<span>Completed: <strong>${fmt(updatedStage.completed_at)}</strong></span>` : ''}
+        </div>`;
+        if (datesEl) datesEl.outerHTML = html; else bodyTop.insertAdjacentHTML('beforeend', html);
+      }
     }
   });
 
-  document.getElementById('spNotes').addEventListener('input', () => {
+  item.querySelector('.sp-notes').addEventListener('input', () => {
     clearTimeout(spNotesTimer);
     spNotesTimer = setTimeout(async () => {
-      const notes = document.getElementById('spNotes')?.value ?? '';
+      const notes = item.querySelector('.sp-notes').value;
       await updateSpStage(stage.id, { notes });
       const s = spStages.find(s => s.id === stage.id);
       if (s) s.notes = notes;
-      const savedEl = document.getElementById('spNotesSaved');
-      if (savedEl) {
-        savedEl.classList.remove('hidden');
-        setTimeout(() => savedEl.classList.add('hidden'), 2000);
-      }
+      const savedEl = item.querySelector(`[data-stage-saved="${stage.id}"]`);
+      if (savedEl) { savedEl.classList.remove('hidden'); setTimeout(() => savedEl.classList.add('hidden'), 2000); }
     }, 800);
   });
 
-  document.getElementById('spGetPrepBtn').addEventListener('click', () => {
-    loadInterviewPrep(stage.id);
-  });
+  item.querySelector('.sp-prep-btn').addEventListener('click', () => loadInterviewPrep(stage.id));
 }
 
 async function updateSpStage(stageId, updates) {
@@ -1406,9 +1467,11 @@ async function updateSpStage(stageId, updates) {
 }
 
 async function loadInterviewPrep(stageId) {
-  const btn = document.getElementById('spGetPrepBtn');
-  const statusEl = document.getElementById('spPrepStatus');
-  const contentEl = document.getElementById('spPrepContent');
+  const item = document.querySelector(`.sp-accordion-item[data-stage-id="${stageId}"]`);
+  if (!item) return;
+  const btn = item.querySelector('.sp-prep-btn');
+  const statusEl = item.querySelector('.sp-prep-status');
+  const contentEl = item.querySelector('.sp-prep-content');
 
   if (btn) btn.disabled = true;
   if (statusEl) statusEl.classList.remove('hidden');
@@ -1449,10 +1512,6 @@ function renderInterviewPrep(data, container) {
     <div class="sp-prep-questions">${questionsHtml}</div>
   `;
 }
-
-document.getElementById('spBackBtn').addEventListener('click', () => {
-  navigateTo('my-candidatures');
-});
 
 // ── End Selection Process ──────────────────────────────────────────────────
 
