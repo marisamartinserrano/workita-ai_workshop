@@ -1417,7 +1417,7 @@ function renderStageBody(stage) {
         <button class="save-btn sp-prep-btn" data-stage-id="${stage.id}" type="button">
           ${hasPrep ? 'Regenerate Interview Prep' : 'Get Interview Prep'}
         </button>
-        <button class="sp-pdf-btn" data-stage-id="${stage.id}" type="button">&#8595; Download Stage PDF</button>
+        ${hasPrep ? `<button class="sp-pdf-btn" data-stage-id="${stage.id}" type="button">&#8595; Download Stage PDF</button>` : ''}
       </div>
       <div class="sp-gen-progress hidden">
         <div class="sp-gen-prog-track">
@@ -1498,7 +1498,7 @@ function wireStageBody(item, stage) {
   });
 
   item.querySelector('.sp-prep-btn').addEventListener('click', () => loadInterviewPrep(stage.id));
-  item.querySelector('.sp-pdf-btn').addEventListener('click', () => downloadStagePDF(stage.id));
+  item.querySelector('.sp-pdf-btn')?.addEventListener('click', () => downloadStagePDF(stage.id));
 }
 
 async function updateSpStage(stageId, updates) {
@@ -1582,6 +1582,17 @@ async function loadInterviewPrep(stageId) {
       badge.className = 'sp-ai-badge';
       badge.innerHTML = 'AI &#10003;';
       header.insertBefore(badge, chevron);
+    }
+
+    // Inject download button into action row if not already present
+    const actionRow = item.querySelector('.sp-action-row');
+    if (actionRow && !actionRow.querySelector('.sp-pdf-btn')) {
+      const pdfBtn = document.createElement('button');
+      pdfBtn.className = 'sp-pdf-btn';
+      pdfBtn.type = 'button';
+      pdfBtn.innerHTML = '&#8595; Download Stage PDF';
+      pdfBtn.addEventListener('click', () => downloadStagePDF(stageId));
+      actionRow.appendChild(pdfBtn);
     }
 
     if (contentEl) contentEl.innerHTML = buildPrepHtml(data);
