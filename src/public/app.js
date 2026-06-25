@@ -461,6 +461,8 @@ function matchBadgeClass(pct) {
   return 'red';
 }
 
+let pipelineChartInstance = null;
+
 function renderHome(data) {
   const { user, stats, candidatures } = data;
 
@@ -476,7 +478,6 @@ function renderHome(data) {
   const list = document.getElementById('candidaturesList');
   const empty = document.getElementById('homeEmpty');
 
-  // Remove existing candidature cards (keep empty state)
   list.querySelectorAll('.candidature-card').forEach(el => el.remove());
 
   if (candidatures.length === 0) {
@@ -488,18 +489,85 @@ function renderHome(data) {
       card.className = 'candidature-card';
       const badgeClass = matchBadgeClass(c.match_pct);
       const matchText = c.match_pct !== null ? `${c.match_pct}%` : 'N/A';
-      const stage = c.current_stage || c.status || '—';
+      const stageLabel = c.current_stage
+        ? `<span class="candidature-stage">${c.current_stage}</span>`
+        : '';
       card.innerHTML = `
         <div class="candidature-info">
           <div class="candidature-title">${c.job_title}</div>
           <div class="candidature-company">${c.company}</div>
-          <div class="candidature-stage">${stage}</div>
+          ${stageLabel}
         </div>
         <span class="match-badge ${badgeClass}">${matchText}</span>
       `;
       list.insertBefore(card, empty);
     }
   }
+
+  // Pipeline chart (only when there are candidatures)
+  if (stats.total > 0) {
+    fetch('/api/candidatures/pipeline')
+      .then(r => r.json())
+      .then(d => renderPipelineChart(d.distribution || []))
+      .catch(() => {});
+  } else {
+    document.getElementById('homePipelineChart')?.classList.add('hidden');
+  }
+}
+
+function renderPipelineChart(distribution) {
+  const section = document.getElementById('homePipelineChart');
+  if (!section || !distribution.length) return;
+
+  section.classList.remove('hidden');
+
+  const canvas = document.getElementById('pipelineChartCanvas');
+  if (!canvas) return;
+
+  // Destroy previous instance to avoid canvas reuse error
+  if (pipelineChartInstance) { pipelineChartInstance.destroy(); pipelineChartInstance = null; }
+
+  const labels = distribution.map(d => d.step);
+  const counts = distribution.map(d => d.count);
+  const maxCount = Math.max(...counts, 1);
+
+  pipelineChartInstance = new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        data: counts,
+        backgroundColor: counts.map(n => n > 0 ? '#1a73e8' : '#e8eaed'),
+        borderRadius: 4,
+        barThickness: 18,
+      }],
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => ` ${ctx.raw} candidature${ctx.raw !== 1 ? 's' : ''}`,
+          },
+        },
+      },
+      scales: {
+        x: {
+          min: 0,
+          max: maxCount + 1,
+          ticks: { precision: 0, stepSize: 1, font: { size: 11 } },
+          grid: { color: '#f0f2f5' },
+        },
+        y: {
+          grid: { display: false },
+          ticks: { font: { size: 11 }, color: '#3c4043' },
+        },
+      },
+    },
+  });
 }
 
 async function navigateTo(section) {
@@ -849,12 +917,14 @@ function renderCandidatureList(candidatures) {
     const pct = c.match_pct;
     const badgeClass = pct >= 75 ? 'green' : pct >= 50 ? 'amber' : pct !== null ? 'red' : 'none';
     const matchText = pct !== null ? `${pct}%` : 'N/A';
-    const stage = c.current_stage || c.status || '—';
+    const stageLabel = c.current_stage
+      ? `<span class="cand-card-stage">${c.current_stage}</span>`
+      : '';
     card.innerHTML = `
       <div class="cand-card-info">
         <div class="cand-card-role">${c.job_title}</div>
         <div class="cand-card-company">${c.company}</div>
-        <div class="cand-card-stage">${stage}</div>
+        ${stageLabel}
       </div>
       <div class="cand-card-right">
         <span class="match-badge ${badgeClass}">${matchText}</span>

@@ -131,6 +131,13 @@
                 <button class="quick-action-btn" id="qaPracticeQuizzes">🧩 Practice Quizzes</button>
               </div>
 
+              <div id="homePipelineChart" class="home-chart-section hidden">
+                <h3 class="home-chart-title">Pipeline Distribution</h3>
+                <div class="home-chart-wrap">
+                  <canvas id="pipelineChartCanvas"></canvas>
+                </div>
+              </div>
+
               <div id="candidaturesList">
                 <div class="empty-state hidden" id="homeEmpty">
                   <p>No candidatures yet.</p>
@@ -486,6 +493,7 @@
       <a href="#" class="cookie-settings-link" id="cookieSettingsLink">Cookie Settings</a>
     </footer>
 
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

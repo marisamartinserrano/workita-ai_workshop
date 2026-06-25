@@ -616,13 +616,13 @@ app.get('/api/home', requireAuth, async (req, res) => {
         current_stage: string | null;
       }>(
         `SELECT c.id, c.job_title, c.company, c.status, c.match_pct,
-                cs.stage_name AS current_stage
+                COALESCE(
+                  (SELECT stage_name FROM candidature_stages WHERE candidature_id = c.id AND status = 'scheduled' ORDER BY stage_order ASC LIMIT 1),
+                  (SELECT s2.stage_name FROM candidature_stages s2 WHERE s2.candidature_id = c.id AND s2.status = 'pending' AND s2.stage_order > COALESCE((SELECT stage_order FROM candidature_stages WHERE candidature_id = c.id AND status = 'completed' ORDER BY stage_order DESC LIMIT 1), -1) ORDER BY s2.stage_order ASC LIMIT 1),
+                  (SELECT stage_name FROM candidature_stages WHERE candidature_id = c.id AND status = 'completed' ORDER BY stage_order DESC LIMIT 1),
+                  (SELECT stage_name FROM candidature_stages WHERE candidature_id = c.id ORDER BY stage_order ASC LIMIT 1)
+                ) AS current_stage
          FROM candidatures c
-         LEFT JOIN LATERAL (
-           SELECT stage_name FROM candidature_stages
-           WHERE candidature_id = c.id
-           ORDER BY entered_at DESC LIMIT 1
-         ) cs ON true
          WHERE c.user_id = $1
          ORDER BY c.created_at DESC`,
         [userId]
@@ -897,13 +897,13 @@ app.get('/api/candidatures', requireAuth, async (req, res) => {
     const { rows } = await pool.query(
       `SELECT c.id, c.job_title, c.company, c.job_url, c.seniority, c.location, c.work_mode,
               c.industry, c.labels, c.status, c.additional_info, c.match_pct, c.created_at,
-              cs.stage_name AS current_stage
+              COALESCE(
+                (SELECT stage_name FROM candidature_stages WHERE candidature_id = c.id AND status = 'scheduled' ORDER BY stage_order ASC LIMIT 1),
+                (SELECT s2.stage_name FROM candidature_stages s2 WHERE s2.candidature_id = c.id AND s2.status = 'pending' AND s2.stage_order > COALESCE((SELECT stage_order FROM candidature_stages WHERE candidature_id = c.id AND status = 'completed' ORDER BY stage_order DESC LIMIT 1), -1) ORDER BY s2.stage_order ASC LIMIT 1),
+                (SELECT stage_name FROM candidature_stages WHERE candidature_id = c.id AND status = 'completed' ORDER BY stage_order DESC LIMIT 1),
+                (SELECT stage_name FROM candidature_stages WHERE candidature_id = c.id ORDER BY stage_order ASC LIMIT 1)
+              ) AS current_stage
        FROM candidatures c
-       LEFT JOIN LATERAL (
-         SELECT stage_name FROM candidature_stages
-         WHERE candidature_id = c.id AND status = 'completed'
-         ORDER BY entered_at DESC LIMIT 1
-       ) cs ON true
        WHERE c.user_id = $1
        ORDER BY c.created_at DESC`,
       [userId],
@@ -912,6 +912,36 @@ app.get('/api/candidatures', requireAuth, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to load candidatures.' });
+  }
+});
+
+app.get('/api/candidatures/pipeline', requireAuth, async (req, res) => {
+  try {
+    const userId = (req.user as { id: string }).id;
+    const { rows } = await pool.query(
+      `SELECT
+         COALESCE(
+           (SELECT stage_order FROM candidature_stages WHERE candidature_id = c.id AND status = 'scheduled' ORDER BY stage_order ASC LIMIT 1),
+           (SELECT s2.stage_order FROM candidature_stages s2 WHERE s2.candidature_id = c.id AND s2.status = 'pending' AND s2.stage_order > COALESCE((SELECT stage_order FROM candidature_stages WHERE candidature_id = c.id AND status = 'completed' ORDER BY stage_order DESC LIMIT 1), -1) ORDER BY s2.stage_order ASC LIMIT 1),
+           (SELECT stage_order FROM candidature_stages WHERE candidature_id = c.id AND status = 'completed' ORDER BY stage_order DESC LIMIT 1),
+           0
+         )::int AS step_order
+       FROM candidatures c
+       WHERE c.user_id = $1`,
+      [userId],
+    );
+
+    const counts = new Array(SELECTION_STAGES.length).fill(0);
+    for (const row of rows) {
+      const idx = Number(row.step_order);
+      if (idx >= 0 && idx < counts.length) counts[idx]++;
+    }
+
+    const distribution = SELECTION_STAGES.map((name, i) => ({ step: name, count: counts[i] }));
+    res.json({ distribution });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to load pipeline data.' });
   }
 });
 

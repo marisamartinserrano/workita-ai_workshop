@@ -343,6 +343,28 @@ body {
   background: #e8f0fe;
 }
 
+/* ── Pipeline Distribution Chart ─────────────────────────── */
+.home-chart-section {
+  border: 1px solid #e8eaed;
+  border-radius: 12px;
+  padding: 16px 20px 12px;
+  background: #fff;
+}
+
+.home-chart-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #5f6368;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 12px;
+}
+
+.home-chart-wrap {
+  height: 300px;
+  position: relative;
+}
+
 .candidature-card {
   display: flex;
   align-items: center;
@@ -375,9 +397,14 @@ body {
 }
 
 .candidature-stage {
-  font-size: 0.78rem;
-  color: #80868b;
-  margin-top: 4px;
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #1557b0;
+  background: #e8f0fe;
+  padding: 2px 8px;
+  border-radius: 8px;
+  margin-top: 5px;
 }
 
 .match-badge {
@@ -1127,9 +1154,14 @@ body {
 }
 
 .cand-card-stage {
-  font-size: 0.78rem;
-  color: #80868b;
-  margin-top: 4px;
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #1557b0;
+  background: #e8f0fe;
+  padding: 2px 8px;
+  border-radius: 8px;
+  margin-top: 5px;
 }
 
 /* Match circle hero */
