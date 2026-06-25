@@ -514,6 +514,7 @@ async function navigateTo(section) {
   document.getElementById('jobPreferencesSection').classList.add('hidden');
   document.getElementById('cvAnalysisSection').classList.add('hidden');
   document.getElementById('linkedinSection').classList.add('hidden');
+  document.getElementById('myCandidaturesSection').classList.add('hidden');
   chatWindow.classList.remove('visible');
   chatWindow.innerHTML = '';
   inputArea.classList.remove('visible');
@@ -534,6 +535,7 @@ async function navigateTo(section) {
     'job-preferences': 'jobPreferencesSection',
     'cv-analysis': 'cvAnalysisSection',
     'linkedin-analysis': 'linkedinSection',
+    'my-candidatures': 'myCandidaturesSection',
   };
 
   if (section in PROFILE_SECTION_IDS) {
@@ -545,6 +547,11 @@ async function navigateTo(section) {
     const sectionId = PROFILE_SECTION_IDS[section];
     const sectionEl = document.getElementById(sectionId);
     sectionEl.classList.remove('hidden');
+    if (section === 'my-candidatures') {
+      showCandView('candListView');
+      await loadCandidatures();
+      return;
+    }
     await loadProfile();
     if (section === 'job-preferences') populateJobPreferencesForm();
     if (section === 'cv-analysis') populateCvForm();
@@ -799,6 +806,401 @@ document.getElementById('linkedinForm').addEventListener('submit', async e => {
 });
 
 document.getElementById('analyseLinkedinBtn').addEventListener('click', analyzeLinkedinSection);
+
+// ── Candidatures ──────────────────────────────────────────────
+
+let candEditId = null;
+let candCurrentData = null;
+
+function showCandView(id) {
+  ['candListView', 'candFormView', 'candResultsView'].forEach(v => {
+    document.getElementById(v).classList.toggle('hidden', v !== id);
+  });
+}
+
+async function loadCandidatures() {
+  try {
+    const data = await fetch('/api/candidatures').then(r => r.json());
+    renderCandidatureList(data.candidatures || []);
+  } catch {
+    renderCandidatureList([]);
+  }
+}
+
+function renderCandidatureList(candidatures) {
+  const list = document.getElementById('candList');
+  const empty = document.getElementById('candListEmpty');
+  list.innerHTML = '';
+  if (!candidatures || candidatures.length === 0) {
+    empty.classList.remove('hidden');
+    return;
+  }
+  empty.classList.add('hidden');
+  candidatures.forEach(c => {
+    const card = document.createElement('div');
+    card.className = 'cand-list-card';
+    card.style.cursor = 'pointer';
+    const pct = c.match_pct;
+    const badgeClass = pct >= 75 ? 'green' : pct >= 50 ? 'amber' : pct !== null ? 'red' : 'none';
+    const matchText = pct !== null ? `${pct}%` : 'N/A';
+    const stage = c.current_stage || c.status || '—';
+    card.innerHTML = `
+      <div class="cand-card-info">
+        <div class="cand-card-role">${c.job_title}</div>
+        <div class="cand-card-company">${c.company}</div>
+        <div class="cand-card-stage">${stage}</div>
+      </div>
+      <div class="cand-card-right">
+        <span class="match-badge ${badgeClass}">${matchText}</span>
+        <div class="cand-card-actions">
+          <button class="cand-card-action-btn" data-action="edit">Edit</button>
+          <button class="cand-card-action-btn del" data-action="delete">Delete</button>
+        </div>
+      </div>`;
+    card.addEventListener('click', e => {
+      if (e.target.closest('.cand-card-actions')) return;
+      viewCandidature(c.id);
+    });
+    card.querySelector('[data-action="edit"]').addEventListener('click', e => {
+      e.stopPropagation();
+      startEditCandidature(c);
+    });
+    card.querySelector('[data-action="delete"]').addEventListener('click', e => {
+      e.stopPropagation();
+      deleteCandidature(c.id);
+    });
+    list.appendChild(card);
+  });
+}
+
+async function viewCandidature(id) {
+  try {
+    const data = await fetch(`/api/candidatures/${id}`).then(r => r.json());
+    if (data.error) { alert(data.error); return; }
+    renderCandidatureResults(data);
+    showCandView('candResultsView');
+  } catch {
+    alert('Failed to load candidature. Please try again.');
+  }
+}
+
+async function deleteCandidature(id) {
+  if (!confirm('Delete this candidature? This cannot be undone.')) return;
+  try {
+    await fetch(`/api/candidatures/${id}`, { method: 'DELETE' });
+    if (candCurrentData?.id === id) candCurrentData = null;
+    showCandView('candListView');
+    await loadCandidatures();
+  } catch {
+    alert('Failed to delete. Please try again.');
+  }
+}
+
+function startEditCandidature(candidature) {
+  candEditId = candidature.id;
+  const form = document.getElementById('candForm');
+  form.job_url.value           = candidature.job_url       || '';
+  form.company.value           = candidature.company       || '';
+  form.job_title.value         = candidature.job_title     || '';
+  form.seniority.value         = candidature.seniority     || '';
+  form.location.value          = candidature.location      || '';
+  form.work_mode.value         = candidature.work_mode     || '';
+  form.industry.value          = candidature.industry      || '';
+  form.labels.value            = (candidature.labels || []).join(', ');
+  form.status.value            = candidature.status        || 'Applied';
+  form.additional_info.value   = candidature.additional_info || '';
+  document.getElementById('candSubmitBtn').textContent = 'Update';
+  showCandView('candFormView');
+}
+
+async function updateCandidature(form) {
+  const submitBtn = document.getElementById('candSubmitBtn');
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'Saving…';
+  try {
+    const body = {};
+    ['company', 'job_title', 'job_url', 'seniority', 'location', 'work_mode', 'industry', 'labels', 'status', 'additional_info']
+      .forEach(f => { body[f] = form[f]?.value ?? ''; });
+    const data = await fetch(`/api/candidatures/${candEditId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(r => r.json());
+    if (data.error) { alert(data.error); return; }
+    candEditId = null;
+    form.reset();
+    submitBtn.textContent = 'Analyse & Save';
+    renderCandidatureResults(data);
+    showCandView('candResultsView');
+  } catch {
+    alert('Failed to update. Please try again.');
+  } finally {
+    submitBtn.disabled = false;
+    if (candEditId) submitBtn.textContent = 'Update';
+  }
+}
+
+async function submitCandidature(e) {
+  e.preventDefault();
+  if (candEditId) { await updateCandidature(e.target); return; }
+  const form = e.target;
+  const jobUrl = form.job_url.value.trim();
+  if (!jobUrl) { alert('Please enter a job posting URL.'); return; }
+
+  const statusEl = document.getElementById('candAnalysisStatus');
+  const fillEl = document.getElementById('candProgressFill');
+  const stepEl = document.getElementById('candAnalysisStep');
+  const submitBtn = document.getElementById('candSubmitBtn');
+
+  submitBtn.disabled = true;
+  statusEl.classList.remove('hidden');
+
+  const steps = ['Fetching job description…', 'Analysing company and role…', 'Matching against your profile…', 'Building recommendations…'];
+  let stepIdx = 0, pct = 0;
+  fillEl.style.transition = 'none';
+  fillEl.style.width = '0%';
+  fillEl.getBoundingClientRect();
+  fillEl.style.transition = 'width 0.5s ease';
+  stepEl.textContent = steps[0];
+
+  const stepTimer = setInterval(() => { if (stepIdx < steps.length - 1) stepEl.textContent = steps[++stepIdx]; }, 4000);
+  const fillTimer = setInterval(() => {
+    const gap = 90 - pct;
+    if (gap <= 0) return;
+    pct = Math.min(90, pct + Math.max(0.4, gap * 0.035));
+    fillEl.style.width = pct + '%';
+  }, 400);
+
+  try {
+    const body = { job_url: jobUrl };
+    ['company', 'job_title', 'seniority', 'location', 'work_mode', 'industry', 'labels', 'status', 'additional_info'].forEach(f => {
+      const val = form[f]?.value?.trim();
+      if (val) body[f] = val;
+    });
+
+    const data = await fetch('/api/candidatures', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(r => r.json());
+
+    clearInterval(stepTimer);
+    clearInterval(fillTimer);
+
+    if (data.error) {
+      fillEl.style.width = '0%';
+      statusEl.classList.add('hidden');
+      alert(data.error);
+      submitBtn.disabled = false;
+      return;
+    }
+
+    fillEl.style.width = '100%';
+    setTimeout(() => {
+      statusEl.classList.add('hidden');
+      form.reset();
+      submitBtn.disabled = false;
+      renderCandidatureResults(data);
+      showCandView('candResultsView');
+    }, 500);
+  } catch {
+    clearInterval(stepTimer);
+    clearInterval(fillTimer);
+    fillEl.style.width = '0%';
+    statusEl.classList.add('hidden');
+    alert('Analysis failed. Please try again.');
+    submitBtn.disabled = false;
+  }
+}
+
+function renderCandidatureResults(data) {
+  const { analysis, hasProfile } = data;
+  candCurrentData = data;
+
+  // Download link
+  document.getElementById('candDownloadReportBtn').href = `/api/candidatures/${data.id}/download`;
+
+  // Match hero — use DB match_pct (already stored), fall back to analysis if fresh from POST
+  const pct = data.match_pct ?? analysis.matchPct;
+  const matchPctEl = document.getElementById('candMatchPct');
+  const circleEl = document.getElementById('candMatchCircle');
+  if (pct !== null && pct !== undefined) {
+    matchPctEl.textContent = pct + '%';
+    circleEl.className = 'match-circle match-circle-' + (pct >= 75 ? 'green' : pct >= 50 ? 'amber' : 'red');
+  } else {
+    matchPctEl.textContent = 'N/A';
+    circleEl.className = 'match-circle match-circle-none';
+  }
+
+  // Use DB fields (always accurate, even after edit)
+  document.getElementById('candResultTitle').textContent = `${data.job_title} at ${data.company}`;
+  const meta = [data.seniority || analysis.role.seniority, data.location || analysis.role.location, data.work_mode || analysis.role.workMode].filter(Boolean).join(' · ');
+  document.getElementById('candResultMeta').textContent = meta;
+
+  // No-profile banner
+  const banner = document.getElementById('candNoProfileBanner');
+  banner.classList.toggle('hidden', !!hasProfile);
+
+  // Result panels
+  const panels = document.getElementById('candResultPanels');
+  panels.innerHTML = '';
+
+  panels.appendChild(makeAnalysisCard('Company Overview', `
+    <p><strong>${analysis.company.name}</strong> — ${analysis.company.summary}</p>
+    <p class="card-meta">Industry: ${analysis.company.industry} · ${analysis.company.financialHealth}</p>
+    ${analysis.company.recentNews && analysis.company.recentNews !== 'Not available' ? `<p class="card-meta">Recent: ${analysis.company.recentNews}</p>` : ''}
+  `));
+
+  const skillChips = (analysis.role.skills || []).map(s => `<span class="skill-chip">${s}</span>`).join('');
+  panels.appendChild(makeAnalysisCard('Role Requirements', `
+    <div class="skill-chips">${skillChips}</div>
+    <div class="role-meta-row">
+      <span><span class="role-meta-label">Experience</span><span class="role-meta-value">${analysis.role.experienceLevel || '—'}</span></span>
+      <span><span class="role-meta-label">Salary</span><span class="role-meta-value">${analysis.role.salary || 'Not specified'}</span></span>
+    </div>
+  `));
+
+  if (hasProfile && analysis.strengths?.length) panels.appendChild(makeAnalysisCard('Your Strengths', bulletList(analysis.strengths)));
+  if (hasProfile && analysis.gaps?.length) panels.appendChild(makeAnalysisCard('Gaps to Address', bulletList(analysis.gaps)));
+  if (hasProfile && analysis.differentiators?.length) panels.appendChild(makeAnalysisCard('Key Differentiators', bulletList(analysis.differentiators)));
+
+  if (analysis.atsKeywords?.length) {
+    const rows = analysis.atsKeywords.map(k =>
+      `<tr><td class="ats-kw-keyword">${k.keyword}</td><td class="ats-kw-tip">${k.tip}</td></tr>`).join('');
+    panels.appendChild(makeAnalysisCard('ATS Keywords', `
+      <table class="ats-kw-table">
+        <thead><tr><th>Keyword</th><th>How to use it</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`));
+  }
+
+  if (analysis.cvRecommendations?.length) panels.appendChild(makeAnalysisCard('CV Recommendations', bulletList(analysis.cvRecommendations)));
+  if (analysis.linkedinRecommendations?.length) panels.appendChild(makeAnalysisCard('LinkedIn Recommendations', bulletList(analysis.linkedinRecommendations)));
+
+  if (analysis.networkingGuidance?.length) {
+    const card = makeAnalysisCard('Networking Guidance', bulletList(analysis.networkingGuidance));
+    card.classList.add('networking-card');
+    panels.appendChild(card);
+  }
+
+  document.getElementById('candTrackBtn').dataset.candidatureId = data.id;
+}
+
+function makeAnalysisCard(title, bodyHtml) {
+  const card = document.createElement('div');
+  card.className = 'analysis-card';
+  card.innerHTML = `<h3 class="analysis-card-title">${title}</h3><div class="analysis-card-body">${bodyHtml}</div>`;
+  return card;
+}
+
+function bulletList(items) {
+  return `<ul class="results-list">${items.map(i => `<li>${i}</li>`).join('')}</ul>`;
+}
+
+async function prefillCandidatureForm(url) {
+  const statusEl = document.getElementById('candPrefillStatus');
+  const fillEl = document.getElementById('candPrefillFill');
+  const stepEl = document.getElementById('candPrefillStep');
+
+  statusEl.classList.remove('hidden');
+  fillEl.style.transition = 'none';
+  fillEl.style.width = '0%';
+  fillEl.getBoundingClientRect();
+  fillEl.style.transition = 'width 0.5s ease';
+  stepEl.textContent = 'Fetching job description…';
+
+  let pct = 0;
+  const fillTimer = setInterval(() => {
+    const gap = 90 - pct;
+    if (gap <= 0) return;
+    pct = Math.min(90, pct + Math.max(1, gap * 0.07));
+    fillEl.style.width = pct + '%';
+  }, 300);
+
+  try {
+    stepEl.textContent = 'Extracting job details with AI…';
+    const data = await fetch('/api/candidatures/prefill', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ job_url: url }),
+    }).then(r => r.json());
+
+    clearInterval(fillTimer);
+
+    if (data.error) {
+      fillEl.style.width = '0%';
+      statusEl.classList.add('hidden');
+      return;
+    }
+
+    const form = document.getElementById('candForm');
+    if (data.company    && !form.company.value)        form.company.value    = data.company;
+    if (data.job_title  && !form.job_title.value)      form.job_title.value  = data.job_title;
+    if (data.location   && !form.location.value)       form.location.value   = data.location;
+    if (data.industry   && !form.industry.value)       form.industry.value   = data.industry;
+    if (data.seniority) {
+      const opts = Array.from(form.seniority.options);
+      const match = opts.find(o => o.value.toLowerCase() === data.seniority.toLowerCase());
+      if (match && !form.seniority.value) form.seniority.value = match.value;
+    }
+    if (data.work_mode) {
+      const opts = Array.from(form.work_mode.options);
+      const match = opts.find(o => o.value.toLowerCase() === data.work_mode.toLowerCase());
+      if (match && !form.work_mode.value) form.work_mode.value = match.value;
+    }
+
+    fillEl.style.width = '100%';
+    stepEl.textContent = '✓ Form prefilled by AI — review and adjust if needed';
+    setTimeout(() => statusEl.classList.add('hidden'), 3000);
+  } catch {
+    clearInterval(fillTimer);
+    fillEl.style.width = '0%';
+    statusEl.classList.add('hidden');
+  }
+}
+
+// Candidature event listeners
+document.getElementById('newCandBtn').addEventListener('click', () => {
+  candEditId = null;
+  document.getElementById('candForm').reset();
+  document.getElementById('candSubmitBtn').textContent = 'Analyse & Save';
+  showCandView('candFormView');
+});
+document.getElementById('candCancelBtn').addEventListener('click', () => {
+  if (candEditId) {
+    candEditId = null;
+    document.getElementById('candSubmitBtn').textContent = 'Analyse & Save';
+    showCandView('candResultsView');
+  } else {
+    showCandView('candListView');
+  }
+});
+document.getElementById('candBackToListBtn').addEventListener('click', async () => {
+  showCandView('candListView');
+  await loadCandidatures();
+});
+document.getElementById('candBannerDismiss').addEventListener('click', () => {
+  document.getElementById('candNoProfileBanner').classList.add('hidden');
+});
+document.getElementById('candForm').addEventListener('submit', submitCandidature);
+
+let candPrefillTimer = null;
+document.getElementById('candJobUrl').addEventListener('input', () => {
+  clearTimeout(candPrefillTimer);
+  const url = document.getElementById('candJobUrl').value.trim();
+  if (!url.startsWith('http')) return;
+  candPrefillTimer = setTimeout(() => prefillCandidatureForm(url), 1200);
+});
+document.getElementById('candEditBtn').addEventListener('click', () => {
+  if (candCurrentData) startEditCandidature(candCurrentData);
+});
+document.getElementById('candDeleteBtn').addEventListener('click', () => {
+  if (candCurrentData) deleteCandidature(candCurrentData.id);
+});
+document.getElementById('candTrackBtn').addEventListener('click', () => {
+  addBubble('model', '**Selection Process tracker** is coming soon. Stay tuned!');
+  navigateTo('home');
+});
 
 // Quick-action buttons on the Home section
 document.getElementById('qaNewCandidature').addEventListener('click', () => navigateTo('my-candidatures'));

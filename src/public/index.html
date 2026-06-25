@@ -295,6 +295,146 @@
             <div class="analysis-results hidden" id="linkedinResults"></div>
           </div>
 
+          <!-- My Candidatures -->
+          <div id="myCandidaturesSection" class="content-section hidden">
+            <h2 class="section-title">My Candidatures</h2>
+
+            <!-- List view -->
+            <div class="cand-view" id="candListView">
+              <div class="cand-list-header">
+                <p class="section-description" style="margin:0;flex:1">Track all your job applications in one place.</p>
+                <button class="analyse-btn" id="newCandBtn" type="button">+ New Candidature</button>
+              </div>
+              <div id="candList"></div>
+              <div class="hidden" id="candListEmpty">
+                <p class="section-description" style="margin-top:32px;text-align:center;color:#80868b">No candidatures yet. Click <strong>+ New Candidature</strong> to add your first job application!</p>
+              </div>
+            </div>
+
+            <!-- Form view -->
+            <div class="cand-view hidden" id="candFormView">
+              <p class="section-description">Paste the job posting URL. AI will analyse the role and match it against your profile.</p>
+              <form class="profile-form" id="candForm" autocomplete="off">
+                <div class="field-group">
+                  <label for="candJobUrl">Job Posting URL <span style="color:#ea4335">*</span></label>
+                  <input type="url" id="candJobUrl" name="job_url" placeholder="https://…" required />
+                </div>
+                <div class="upload-status hidden" id="candPrefillStatus">
+                  <div class="upload-status-row">
+                    <div class="upload-spinner"></div>
+                    <span id="candPrefillStep">Fetching job description…</span>
+                  </div>
+                  <div class="upload-progress-track" id="candPrefillTrack">
+                    <div class="upload-progress-fill" id="candPrefillFill"></div>
+                  </div>
+                </div>
+                <div class="field-group">
+                  <label for="candCompany">Company <span class="optional-label">(optional — AI will fill)</span></label>
+                  <input type="text" id="candCompany" name="company" placeholder="e.g. Stripe" />
+                </div>
+                <div class="field-group">
+                  <label for="candRole">Role / Job Title <span class="optional-label">(optional — AI will fill)</span></label>
+                  <input type="text" id="candRole" name="job_title" placeholder="e.g. Senior Product Manager" />
+                </div>
+                <div class="field-group">
+                  <label for="candSeniority">Seniority <span class="optional-label">(optional — AI will fill)</span></label>
+                  <select id="candSeniority" name="seniority">
+                    <option value="">— AI will fill if blank —</option>
+                    <option>Junior</option>
+                    <option>Mid</option>
+                    <option>Senior</option>
+                    <option>Lead</option>
+                    <option>Principal</option>
+                    <option>Manager</option>
+                    <option>Director</option>
+                    <option>VP</option>
+                    <option>C-Level</option>
+                  </select>
+                </div>
+                <div class="field-group">
+                  <label for="candLocation">Location <span class="optional-label">(optional — AI will fill)</span></label>
+                  <input type="text" id="candLocation" name="location" placeholder="e.g. London, Remote (EU)" />
+                </div>
+                <div class="field-group">
+                  <label for="candWorkMode">Work Mode <span class="optional-label">(optional — AI will fill)</span></label>
+                  <select id="candWorkMode" name="work_mode">
+                    <option value="">— AI will fill if blank —</option>
+                    <option>On-site</option>
+                    <option>Hybrid</option>
+                    <option>Remote</option>
+                  </select>
+                </div>
+                <div class="field-group">
+                  <label for="candIndustry">Industry <span class="optional-label">(optional — AI will fill)</span></label>
+                  <input type="text" id="candIndustry" name="industry" placeholder="e.g. Fintech, SaaS" />
+                </div>
+                <div class="field-group">
+                  <label for="candStatus">Application Status</label>
+                  <select id="candStatus" name="status">
+                    <option value="Applied" selected>Applied</option>
+                    <option value="Screening">Screening</option>
+                    <option value="Interviewing">Interviewing</option>
+                    <option value="Offer">Offer</option>
+                    <option value="Rejected">Rejected</option>
+                    <option value="Withdrawn">Withdrawn</option>
+                  </select>
+                </div>
+                <div class="field-group">
+                  <label for="candLabels">Labels <span class="optional-label">(comma-separated)</span></label>
+                  <input type="text" id="candLabels" name="labels" placeholder="e.g. fintech, startup, dream job" />
+                </div>
+                <div class="field-group">
+                  <label for="candNotes">Notes <span class="optional-label">(optional)</span></label>
+                  <textarea id="candNotes" name="additional_info" rows="3" placeholder="Referral contact, recruiter name, notes…"></textarea>
+                </div>
+                <div class="form-row">
+                  <button type="submit" class="save-btn" id="candSubmitBtn">Analyse &amp; Save</button>
+                  <button type="button" class="analyse-btn" id="candCancelBtn">Cancel</button>
+                </div>
+              </form>
+              <div class="upload-status hidden" id="candAnalysisStatus">
+                <div class="upload-status-row">
+                  <div class="upload-spinner"></div>
+                  <span id="candAnalysisStep">Fetching job description…</span>
+                </div>
+                <div class="upload-progress-track" id="candProgressTrack">
+                  <div class="upload-progress-fill" id="candProgressFill"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Results view -->
+            <div class="cand-view hidden" id="candResultsView">
+              <div class="cand-results-actions">
+                <a id="candDownloadReportBtn" href="#" class="download-btn">↓ Download PDF</a>
+                <button id="candEditBtn" class="analyse-btn" type="button">✎ Edit</button>
+                <button id="candDeleteBtn" class="cand-delete-btn" type="button">Delete</button>
+              </div>
+              <div class="cand-no-profile-banner hidden" id="candNoProfileBanner">
+                <span>Complete your profile for a personalised match score and tailored recommendations.</span>
+                <button class="cand-banner-dismiss" id="candBannerDismiss" type="button">×</button>
+              </div>
+
+              <div class="cand-match-hero">
+                <div class="match-circle match-circle-none" id="candMatchCircle">
+                  <span class="match-circle-pct" id="candMatchPct">—</span>
+                  <span class="match-circle-label">Match</span>
+                </div>
+                <div class="cand-hero-info">
+                  <h3 class="cand-hero-title" id="candResultTitle"></h3>
+                  <p class="cand-hero-meta" id="candResultMeta"></p>
+                </div>
+              </div>
+
+              <div id="candResultPanels"></div>
+
+              <div class="form-row" style="margin-top:24px">
+                <button class="save-btn" id="candTrackBtn" type="button">Track Selection Process</button>
+                <button class="analyse-btn" id="candBackToListBtn" type="button">← Back to Candidatures</button>
+              </div>
+            </div>
+          </div>
+
           <div class="chat-window" id="chatWindow"></div>
           <div class="input-area" id="inputArea">
             <div class="upload-row hidden" id="uploadRow">

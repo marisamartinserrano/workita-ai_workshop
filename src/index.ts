@@ -9,6 +9,7 @@ import { dirname, join } from 'path';
 import { generateOnboardingResponse, type Message } from './flows/onboarding.js';
 import { analyzeCv, isCvContent, type CvAnalysisResult } from './flows/cvAnalysis.js';
 import { analyzeLinkedin, type LinkedinAnalysisResult } from './flows/linkedinAnalysis.js';
+import { analyzeJob, extractJobBasics, type JobAnalysisResult } from './flows/jobAnalysis.js';
 
 const require = createRequire(import.meta.url);
 
@@ -200,6 +201,140 @@ async function generateLinkedinAnalysisPdf(analysis: LinkedinAnalysisResult, can
     }
     pdfSectionTitle(doc, 'Recommendations', M, W, C);
     for (const rec of (analysis.recommendations ?? [])) pdfLinkedinRec(doc, rec, M, W, C);
+    doc.end();
+  });
+}
+
+type CandidaturePdfData = {
+  job_title: string;
+  company: string;
+  seniority: string | null;
+  location: string | null;
+  work_mode: string | null;
+  match_pct: number | null;
+  analysis: JobAnalysisResult;
+  candidate_name: string;
+};
+
+async function generateCandidaturePdf(data: CandidaturePdfData): Promise<Buffer> {
+  return new Promise<Buffer>((resolve, reject) => {
+    const PDFDocClass = require('pdfkit') as { new(opts?: Record<string, unknown>): any };
+    const doc = new PDFDocClass({ size: 'A4', margin: 50 });
+    const chunks: Buffer[] = [];
+    doc.on('data', (c: Buffer) => chunks.push(c));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+    const M = 50, W = doc.page.width - M * 2;
+    const C: PdfColors = {
+      blue: '#1a73e8', blueBg: '#e8f0fe', green: '#34a853', teal: '#00897b',
+      amber: '#f9ab00', red: '#ea4335', dark: '#202124',
+      body: '#3c4043', muted: '#5f6368', border: '#e8eaed',
+    };
+    const { analysis } = data;
+    const date = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+
+    // Header block
+    const headerY = M;
+    doc.font('Helvetica-Bold').fontSize(22).fillColor(C.blue).text('Workita', M, headerY);
+    doc.font('Helvetica-Bold').fontSize(15).fillColor(C.dark).text(data.job_title, M);
+    doc.font('Helvetica').fontSize(12).fillColor(C.body).text(`at ${data.company}`, M);
+    const metaParts = [data.seniority, data.location, data.work_mode].filter(Boolean) as string[];
+    if (metaParts.length) doc.font('Helvetica').fontSize(10).fillColor(C.muted).text(metaParts.join(' · '), M);
+    doc.font('Helvetica').fontSize(10).fillColor(C.muted).text(`${data.candidate_name}  ·  ${date}`, M);
+
+    // Match circle (top-right)
+    if (data.match_pct !== null) {
+      const matchColor = data.match_pct >= 75 ? C.green : data.match_pct >= 50 ? C.amber : C.red;
+      const cx = M + W - 30, cy = headerY + 30;
+      doc.circle(cx, cy, 30).strokeColor(matchColor).lineWidth(5).stroke();
+      doc.font('Helvetica-Bold').fontSize(16).fillColor(matchColor)
+        .text(`${data.match_pct}%`, cx - 30, cy - 12, { width: 60, align: 'center', lineBreak: false });
+      doc.font('Helvetica').fontSize(8).fillColor(C.muted)
+        .text('Match', cx - 30, cy + 8, { width: 60, align: 'center', lineBreak: false });
+    }
+
+    doc.moveDown(0.6);
+    doc.moveTo(M, doc.y).lineTo(M + W, doc.y).strokeColor(C.blue).lineWidth(1.5).stroke();
+    doc.moveDown(1);
+
+    // Company Overview
+    pdfSectionTitle(doc, 'Company Overview', M, W, C);
+    doc.font('Helvetica-Bold').fontSize(10).fillColor(C.dark).text(analysis.company.name, M);
+    doc.font('Helvetica').fontSize(10).fillColor(C.body).text(analysis.company.summary, M, doc.y, { width: W });
+    if (analysis.company.industry) {
+      doc.font('Helvetica').fontSize(9).fillColor(C.muted)
+        .text(`Industry: ${analysis.company.industry}  ·  ${analysis.company.financialHealth}`, M, doc.y, { width: W });
+    }
+    if (analysis.company.recentNews && analysis.company.recentNews !== 'Not available') {
+      doc.font('Helvetica').fontSize(9).fillColor(C.muted)
+        .text(`Recent: ${analysis.company.recentNews}`, M, doc.y, { width: W });
+    }
+    doc.moveDown(0.8);
+
+    // Role Requirements
+    pdfSectionTitle(doc, 'Role Requirements', M, W, C);
+    pdfChips(doc, analysis.role.skills ?? [], M, W, C);
+    const roleDetails = [
+      analysis.role.experienceLevel && `Experience: ${analysis.role.experienceLevel}`,
+      analysis.role.salary && analysis.role.salary !== 'Not specified' && `Salary: ${analysis.role.salary}`,
+    ].filter(Boolean) as string[];
+    if (roleDetails.length) {
+      doc.font('Helvetica').fontSize(10).fillColor(C.body).text(roleDetails.join('   ·   '), M, doc.y, { width: W });
+    }
+    doc.moveDown(0.8);
+
+    // Strengths / Gaps / Differentiators
+    if (analysis.strengths?.length) {
+      pdfSectionTitle(doc, 'Your Strengths', M, W, C);
+      pdfBulletList(doc, analysis.strengths, M, W, C);
+    }
+    if (analysis.gaps?.length) {
+      pdfSectionTitle(doc, 'Gaps to Address', M, W, C);
+      pdfBulletList(doc, analysis.gaps, M, W, C);
+    }
+    if (analysis.differentiators?.length) {
+      pdfSectionTitle(doc, 'Key Differentiators', M, W, C);
+      pdfBulletList(doc, analysis.differentiators, M, W, C);
+    }
+
+    // ATS Keywords
+    if (analysis.atsKeywords?.length) {
+      pdfSectionTitle(doc, 'ATS Keywords', M, W, C);
+      const KW = 155;
+      for (const kw of analysis.atsKeywords) {
+        if (doc.y > doc.page.height - 80) doc.addPage();
+        const rowY = doc.y;
+        doc.font('Helvetica-Bold').fontSize(10).fillColor(C.blue).text(kw.keyword, M, rowY, { width: KW, lineBreak: false });
+        doc.font('Helvetica').fontSize(10).fillColor(C.body).text(kw.tip, M + KW + 12, rowY, { width: W - KW - 12 });
+        if (doc.y < rowY + 14) doc.y = rowY + 14;
+        doc.moveDown(0.3);
+      }
+      doc.moveDown(0.5);
+    }
+
+    // CV Recommendations
+    if (analysis.cvRecommendations?.length) {
+      pdfSectionTitle(doc, 'CV Recommendations', M, W, C);
+      pdfBulletList(doc, analysis.cvRecommendations, M, W, C);
+    }
+
+    // LinkedIn Recommendations
+    if (analysis.linkedinRecommendations?.length) {
+      pdfSectionTitle(doc, 'LinkedIn Recommendations', M, W, C);
+      pdfBulletList(doc, analysis.linkedinRecommendations, M, W, C);
+    }
+
+    // Networking Guidance (teal accent)
+    if (analysis.networkingGuidance?.length) {
+      if (doc.y > doc.page.height - 120) doc.addPage();
+      doc.moveTo(M, doc.y).lineTo(M + W, doc.y).strokeColor(C.teal).lineWidth(1.5).stroke();
+      doc.moveDown(0.4);
+      doc.font('Helvetica-Bold').fontSize(12).fillColor(C.teal).text('Networking Guidance', M);
+      doc.moveTo(M, doc.y).lineTo(M + W, doc.y).strokeColor(C.border).lineWidth(0.5).stroke();
+      doc.moveDown(0.4);
+      pdfBulletList(doc, analysis.networkingGuidance, M, W, C);
+    }
+
     doc.end();
   });
 }
@@ -633,6 +768,229 @@ app.get('/api/profile/linkedin-analysis/download', requireAuth, async (req, res)
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Download failed.' });
+  }
+});
+
+const SELECTION_STAGES = [
+  'Application submitted',
+  'CV screening',
+  'Phone screen',
+  'Technical assessment',
+  'First interview',
+  'Second interview',
+  'Case study / assignment',
+  'Final interview',
+  'Offer received',
+  'Decision made',
+];
+
+async function fetchJobDescription(url: string): Promise<string> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+  try {
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Workita/1.0)' },
+    });
+    const html = await res.text();
+    const text = html
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    return text.slice(0, 8000);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+app.post('/api/candidatures/prefill', requireAuth, async (req, res) => {
+  try {
+    const { job_url } = req.body as { job_url: string };
+    if (!job_url?.trim()) { res.status(400).json({ error: 'URL required.' }); return; }
+    let jobText: string;
+    try {
+      jobText = await fetchJobDescription(job_url.trim());
+    } catch {
+      res.status(422).json({ error: 'Could not fetch the job posting.' });
+      return;
+    }
+    const basics = await extractJobBasics(jobText);
+    res.json(basics);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Prefill failed.' });
+  }
+});
+
+app.post('/api/candidatures', requireAuth, async (req, res) => {
+  try {
+    const userId = (req.user as { id: string }).id;
+    const body = req.body as Record<string, string>;
+    const { job_url, company, job_title, seniority, location, work_mode, industry, labels, status, additional_info } = body;
+
+    if (!job_url || !job_url.trim()) {
+      res.status(400).json({ error: 'Job posting URL is required.' });
+      return;
+    }
+
+    let jobText: string;
+    try {
+      jobText = await fetchJobDescription(job_url.trim());
+    } catch {
+      res.status(422).json({ error: 'Could not fetch the job posting. Please check the URL and try again.' });
+      return;
+    }
+
+    const { rows: profileRows } = await pool.query<{ cv_text: string | null; target_role: string | null; seniority: string | null }>(
+      'SELECT cv_text, target_role, seniority FROM profiles WHERE user_id = $1',
+      [userId],
+    );
+    const profile = profileRows[0];
+    const hasProfile = !!(profile?.cv_text && profile.cv_text.trim().length > 100);
+
+    const analysis = await analyzeJob(
+      jobText,
+      hasProfile ? profile.cv_text ?? undefined : undefined,
+      profile?.target_role ?? undefined,
+      profile?.seniority ?? undefined,
+    );
+
+    const resolvedTitle = job_title?.trim() || analysis.role.title || 'Unknown Role';
+    const resolvedCompany = company?.trim() || analysis.company.name || 'Unknown Company';
+    const resolvedSeniority = seniority?.trim() || analysis.role.seniority || null;
+    const resolvedLocation = location?.trim() || analysis.role.location || null;
+    const resolvedWorkMode = work_mode?.trim() || analysis.role.workMode || null;
+    const resolvedIndustry = industry?.trim() || analysis.role.industry || null;
+    const resolvedStatus = status?.trim() || 'Applied';
+    const matchPct = analysis.matchPct ?? null;
+    const labelsArray = labels ? labels.split(',').map((l: string) => l.trim()).filter(Boolean) : [];
+
+    const { rows: candRows } = await pool.query<{ id: string }>(
+      `INSERT INTO candidatures
+         (user_id, job_title, company, job_url, seniority, location, work_mode, industry, labels, status, additional_info, match_pct, analysis, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())
+       RETURNING id`,
+      [userId, resolvedTitle, resolvedCompany, job_url.trim(), resolvedSeniority, resolvedLocation, resolvedWorkMode, resolvedIndustry, labelsArray, resolvedStatus, additional_info?.trim() || null, matchPct, JSON.stringify(analysis)],
+    );
+    const candidatureId = candRows[0].id;
+
+    for (let i = 0; i < SELECTION_STAGES.length; i++) {
+      await pool.query(
+        'INSERT INTO candidature_stages (candidature_id, stage_name, status) VALUES ($1, $2, $3)',
+        [candidatureId, SELECTION_STAGES[i], i === 0 ? 'completed' : 'pending'],
+      );
+    }
+
+    res.json({ id: candidatureId, job_title: resolvedTitle, company: resolvedCompany, analysis, hasProfile });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Analysis failed. Please try again.' });
+  }
+});
+
+app.get('/api/candidatures', requireAuth, async (req, res) => {
+  try {
+    const userId = (req.user as { id: string }).id;
+    const { rows } = await pool.query(
+      `SELECT c.id, c.job_title, c.company, c.job_url, c.seniority, c.location, c.work_mode,
+              c.industry, c.labels, c.status, c.additional_info, c.match_pct, c.created_at,
+              cs.stage_name AS current_stage
+       FROM candidatures c
+       LEFT JOIN LATERAL (
+         SELECT stage_name FROM candidature_stages
+         WHERE candidature_id = c.id AND status = 'completed'
+         ORDER BY entered_at DESC LIMIT 1
+       ) cs ON true
+       WHERE c.user_id = $1
+       ORDER BY c.created_at DESC`,
+      [userId],
+    );
+    res.json({ candidatures: rows });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to load candidatures.' });
+  }
+});
+
+app.get('/api/candidatures/:id/download', requireAuth, async (req, res) => {
+  try {
+    const userId = (req.user as { id: string }).id;
+    const { rows } = await pool.query(
+      'SELECT c.*, u.name AS candidate_name FROM candidatures c JOIN users u ON u.id = c.user_id WHERE c.id = $1 AND c.user_id = $2',
+      [req.params.id, userId],
+    );
+    if (!rows[0]) { res.status(404).json({ error: 'Not found.' }); return; }
+    const row = rows[0];
+    if (!row.analysis) { res.status(422).json({ error: 'No analysis available.' }); return; }
+    const pdf = await generateCandidaturePdf(row as CandidaturePdfData);
+    const filename = `${(row.job_title as string).replace(/[^a-z0-9]/gi, '_')}_report.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(pdf);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to generate report.' });
+  }
+});
+
+app.get('/api/candidatures/:id', requireAuth, async (req, res) => {
+  try {
+    const userId = (req.user as { id: string }).id;
+    const { rows } = await pool.query(
+      'SELECT c.* FROM candidatures c WHERE c.id = $1 AND c.user_id = $2',
+      [req.params.id, userId],
+    );
+    if (!rows[0]) { res.status(404).json({ error: 'Not found.' }); return; }
+    const hasProfile = !!(await pool.query('SELECT cv_text FROM profiles WHERE user_id = $1', [userId])).rows[0]?.cv_text;
+    res.json({ ...rows[0], hasProfile });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to load candidature.' });
+  }
+});
+
+app.delete('/api/candidatures/:id', requireAuth, async (req, res) => {
+  try {
+    const userId = (req.user as { id: string }).id;
+    const result = await pool.query('DELETE FROM candidatures WHERE id = $1 AND user_id = $2', [req.params.id, userId]);
+    if (!result.rowCount) { res.status(404).json({ error: 'Not found.' }); return; }
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to delete.' });
+  }
+});
+
+app.put('/api/candidatures/:id', requireAuth, async (req, res) => {
+  try {
+    const userId = (req.user as { id: string }).id;
+    const b = req.body as Record<string, string>;
+    const labels = b.labels ? b.labels.split(',').map((l: string) => l.trim()).filter(Boolean) : [];
+    const { rows } = await pool.query(
+      `UPDATE candidatures SET
+         company       = COALESCE(NULLIF(TRIM($2),  ''), company),
+         job_title     = COALESCE(NULLIF(TRIM($3),  ''), job_title),
+         job_url       = NULLIF(TRIM($4),  ''),
+         seniority     = NULLIF(TRIM($5),  ''),
+         location      = NULLIF(TRIM($6),  ''),
+         work_mode     = NULLIF(TRIM($7),  ''),
+         industry      = NULLIF(TRIM($8),  ''),
+         labels        = $9,
+         status        = COALESCE(NULLIF(TRIM($10), ''), status),
+         additional_info = NULLIF(TRIM($11), '')
+       WHERE id = $1 AND user_id = $12
+       RETURNING *`,
+      [req.params.id, b.company, b.job_title, b.job_url, b.seniority, b.location,
+       b.work_mode, b.industry, labels, b.status, b.additional_info, userId],
+    );
+    if (!rows[0]) { res.status(404).json({ error: 'Not found.' }); return; }
+    const hasProfile = !!(await pool.query('SELECT cv_text FROM profiles WHERE user_id = $1', [userId])).rows[0]?.cv_text;
+    res.json({ ...rows[0], hasProfile });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to update.' });
   }
 });
 
