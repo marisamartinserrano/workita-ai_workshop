@@ -1358,6 +1358,233 @@ body {
 /* Networking guidance accent */
 .networking-card { border-left: 4px solid #00897b; }
 
+/* ── Selection Process ────────────────────────────────────── */
+.sp-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  flex-shrink: 0;
+}
+
+.sp-back-btn { flex-shrink: 0; }
+
+.sp-meta {
+  font-size: 0.85rem;
+  color: #5f6368;
+  margin: 4px 0 0;
+}
+
+.sp-layout {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.sp-stage-list {
+  width: 210px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sp-stage-item {
+  padding: 10px 12px;
+  border: 1px solid #e8eaed;
+  border-radius: 8px;
+  cursor: pointer;
+  background: #fff;
+  transition: background 0.15s, border-color 0.15s;
+  border-left: 4px solid transparent;
+}
+
+.sp-stage-item:hover { background: #f8f9fa; border-color: #dadce0; }
+
+.sp-stage-item.selected {
+  background: #e8f0fe;
+  border-color: #1a73e8;
+  border-left-color: #1a73e8;
+}
+
+.sp-stage-item.current:not(.selected) {
+  border-left-color: #1a73e8;
+}
+
+.sp-stage-name {
+  display: block;
+  font-size: 0.84rem;
+  font-weight: 500;
+  color: #202124;
+  margin-bottom: 5px;
+  line-height: 1.35;
+}
+
+.sp-stage-status-pill {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 8px;
+  text-transform: capitalize;
+}
+
+.sp-stage-status-pill.pending   { background: #f1f3f4; color: #5f6368; }
+.sp-stage-status-pill.scheduled { background: #e8f0fe; color: #1a73e8; }
+.sp-stage-status-pill.completed { background: #e6f4ea; color: #137333; }
+.sp-stage-status-pill.skipped   { background: #fce8e6; color: #c5221f; }
+
+.sp-stage-detail {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.sp-hint {
+  color: #80868b;
+  font-size: 0.875rem;
+  text-align: center;
+  padding: 48px 0;
+}
+
+.sp-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.sp-detail-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #202124;
+  margin: 0;
+}
+
+.sp-status-select {
+  padding: 7px 10px;
+  border: 1px solid #e8eaed;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  color: #202124;
+  background: #fff;
+  outline: none;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.sp-status-select:focus { border-color: #1a73e8; }
+
+.sp-dates {
+  display: flex;
+  gap: 20px;
+  font-size: 0.82rem;
+  color: #80868b;
+  flex-wrap: wrap;
+}
+
+.sp-notes-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sp-notes-label {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #5f6368;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.sp-notes {
+  padding: 10px 12px;
+  border: 1px solid #e8eaed;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  color: #202124;
+  font-family: inherit;
+  resize: vertical;
+  min-height: 100px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.sp-notes:focus { border-color: #1a73e8; }
+
+.sp-notes-saved {
+  font-size: 0.8rem;
+  color: #137333;
+  font-weight: 500;
+  align-self: flex-end;
+}
+
+.sp-prep-overview {
+  background: #fafafa;
+  border: 1px solid #e8eaed;
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-size: 0.875rem;
+  color: #3c4043;
+  line-height: 1.6;
+}
+
+.sp-prep-section-label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #5f6368;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.sp-prep-questions {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.sp-prep-card {
+  background: #fff;
+  border: 1px solid #e8eaed;
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sp-prep-q {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #202124;
+}
+
+.sp-prep-tip {
+  font-size: 0.85rem;
+  color: #1557b0;
+  background: #e8f0fe;
+  padding: 7px 10px;
+  border-radius: 6px;
+  line-height: 1.5;
+}
+
+.sp-prep-tip::before {
+  content: '💡 ';
+}
+
+.sp-prep-answer {
+  font-size: 0.85rem;
+  color: #3c4043;
+  line-height: 1.6;
+}
+
+@media (max-width: 767px) {
+  .sp-layout { flex-direction: column; }
+  .sp-stage-list { width: 100%; }
+}
+
 /* ── Footer ──────────────────────────────────────────────── */
 .app-footer {
   background: #fff;

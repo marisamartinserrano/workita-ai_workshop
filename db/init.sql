@@ -62,9 +62,18 @@ CREATE TABLE IF NOT EXISTS candidature_stages (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   candidature_id UUID NOT NULL REFERENCES candidatures(id) ON DELETE CASCADE,
   stage_name VARCHAR(100) NOT NULL,
+  stage_order INTEGER NOT NULL DEFAULT 0,
   status VARCHAR(20) NOT NULL DEFAULT 'pending',
-  entered_at TIMESTAMPTZ DEFAULT NOW()
+  notes TEXT,
+  entered_at TIMESTAMPTZ DEFAULT NOW(),
+  scheduled_at TIMESTAMPTZ,
+  completed_at TIMESTAMPTZ
 );
+
+ALTER TABLE candidature_stages ADD COLUMN IF NOT EXISTS stage_order INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE candidature_stages ADD COLUMN IF NOT EXISTS notes TEXT;
+ALTER TABLE candidature_stages ADD COLUMN IF NOT EXISTS scheduled_at TIMESTAMPTZ;
+ALTER TABLE candidature_stages ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
 
 CREATE TABLE IF NOT EXISTS profiles (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

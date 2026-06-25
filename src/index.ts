@@ -10,6 +10,7 @@ import { generateOnboardingResponse, type Message } from './flows/onboarding.js'
 import { analyzeCv, isCvContent, type CvAnalysisResult } from './flows/cvAnalysis.js';
 import { analyzeLinkedin, type LinkedinAnalysisResult } from './flows/linkedinAnalysis.js';
 import { analyzeJob, extractJobBasics, type JobAnalysisResult } from './flows/jobAnalysis.js';
+import { generateInterviewPrep } from './flows/interviewPrep.js';
 
 const require = createRequire(import.meta.url);
 
@@ -773,15 +774,15 @@ app.get('/api/profile/linkedin-analysis/download', requireAuth, async (req, res)
 
 const SELECTION_STAGES = [
   'Application submitted',
-  'CV screening',
-  'Phone screen',
-  'Technical assessment',
-  'First interview',
-  'Second interview',
-  'Case study / assignment',
-  'Final interview',
-  'Offer received',
-  'Decision made',
+  'Interview with recruiter',
+  'Technical interview',
+  'Use case or assignment',
+  'Team interview',
+  'Manager interview',
+  'Client/Stakeholder interview',
+  'Cultural interview',
+  'Leadership interview',
+  'Offer received / Candidature rejected',
 ];
 
 async function fetchJobDescription(url: string): Promise<string> {
@@ -878,8 +879,8 @@ app.post('/api/candidatures', requireAuth, async (req, res) => {
 
     for (let i = 0; i < SELECTION_STAGES.length; i++) {
       await pool.query(
-        'INSERT INTO candidature_stages (candidature_id, stage_name, status) VALUES ($1, $2, $3)',
-        [candidatureId, SELECTION_STAGES[i], i === 0 ? 'completed' : 'pending'],
+        'INSERT INTO candidature_stages (candidature_id, stage_name, stage_order, status) VALUES ($1, $2, $3, $4)',
+        [candidatureId, SELECTION_STAGES[i], i, i === 0 ? 'completed' : 'pending'],
       );
     }
 
@@ -994,6 +995,94 @@ app.put('/api/candidatures/:id', requireAuth, async (req, res) => {
   }
 });
 
+app.get('/api/candidatures/:id/stages', requireAuth, async (req, res) => {
+  try {
+    const userId = (req.user as { id: string }).id;
+    const { rows: cand } = await pool.query(
+      'SELECT id FROM candidatures WHERE id = $1 AND user_id = $2',
+      [req.params.id, userId],
+    );
+    if (!cand[0]) { res.status(404).json({ error: 'Not found.' }); return; }
+    const { rows } = await pool.query(
+      'SELECT * FROM candidature_stages WHERE candidature_id = $1 ORDER BY stage_order ASC, entered_at ASC',
+      [req.params.id],
+    );
+    res.json({ stages: rows });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to load stages.' });
+  }
+});
+
+app.patch('/api/candidatures/:id/stages/:stageId', requireAuth, async (req, res) => {
+  try {
+    const userId = (req.user as { id: string }).id;
+    const { status, notes } = req.body as { status?: string; notes?: string };
+
+    const { rows: cand } = await pool.query(
+      'SELECT id FROM candidatures WHERE id = $1 AND user_id = $2',
+      [req.params.id, userId],
+    );
+    if (!cand[0]) { res.status(404).json({ error: 'Not found.' }); return; }
+
+    const sets: string[] = [];
+    const vals: (string | null)[] = [];
+
+    if (status !== undefined) {
+      vals.push(status);
+      const idx = vals.length;
+      sets.push(`status = $${idx}`);
+      sets.push(`scheduled_at = CASE WHEN $${idx} = 'scheduled' AND scheduled_at IS NULL THEN NOW() ELSE scheduled_at END`);
+      sets.push(`completed_at = CASE WHEN $${idx} = 'completed' AND completed_at IS NULL THEN NOW() ELSE completed_at END`);
+    }
+    if (notes !== undefined) {
+      vals.push(notes);
+      sets.push(`notes = $${vals.length}`);
+    }
+
+    if (sets.length === 0) { res.json({ ok: true }); return; }
+
+    vals.push(req.params.stageId);
+    vals.push(req.params.id);
+    const { rows } = await pool.query(
+      `UPDATE candidature_stages SET ${sets.join(', ')} WHERE id = $${vals.length - 1} AND candidature_id = $${vals.length} RETURNING *`,
+      vals,
+    );
+    if (!rows[0]) { res.status(404).json({ error: 'Stage not found.' }); return; }
+    res.json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to update stage.' });
+  }
+});
+
+app.post('/api/candidatures/:id/stages/:stageId/prep', requireAuth, async (req, res) => {
+  try {
+    const userId = (req.user as { id: string }).id;
+    const { rows: cand } = await pool.query(
+      'SELECT job_title, company FROM candidatures WHERE id = $1 AND user_id = $2',
+      [req.params.id, userId],
+    );
+    if (!cand[0]) { res.status(404).json({ error: 'Not found.' }); return; }
+
+    const { rows: stage } = await pool.query(
+      'SELECT stage_name FROM candidature_stages WHERE id = $1 AND candidature_id = $2',
+      [req.params.stageId, req.params.id],
+    );
+    if (!stage[0]) { res.status(404).json({ error: 'Stage not found.' }); return; }
+
+    const result = await generateInterviewPrep(
+      stage[0].stage_name as string,
+      cand[0].job_title as string,
+      cand[0].company as string,
+    );
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to generate interview prep.' });
+  }
+});
+
 app.post('/api/upload', requireAuth, upload.single('cv'), async (req, res) => {
   try {
     const sessionId = req.session.sessionId as string;
@@ -1007,6 +1096,20 @@ app.post('/api/upload', requireAuth, upload.single('cv'), async (req, res) => {
   }
 });
 
-app.listen(Number(port), () => {
-  console.log(`Workita running on http://localhost:${port}`);
-});
+async function runMigrations() {
+  await pool.query(`ALTER TABLE candidature_stages ADD COLUMN IF NOT EXISTS stage_order INTEGER NOT NULL DEFAULT 0`);
+  await pool.query(`ALTER TABLE candidature_stages ADD COLUMN IF NOT EXISTS notes TEXT`);
+  await pool.query(`ALTER TABLE candidature_stages ADD COLUMN IF NOT EXISTS scheduled_at TIMESTAMPTZ`);
+  await pool.query(`ALTER TABLE candidature_stages ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ`);
+}
+
+runMigrations()
+  .then(() => {
+    app.listen(Number(port), () => {
+      console.log(`Workita running on http://localhost:${port}`);
+    });
+  })
+  .catch(err => {
+    console.error('Migration failed', err);
+    process.exit(1);
+  });

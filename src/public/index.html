@@ -50,6 +50,7 @@
               </button>
               <ul class="nav-group-items" id="group-candidatures" role="list">
                 <li><a class="nav-item nav-subitem" data-section="my-candidatures" href="#" tabindex="0"><span class="nav-label">📋 My Candidatures</span></a></li>
+                <li><a class="nav-item nav-subitem" data-section="selection-process-nav" href="#" tabindex="0"><span class="nav-label">🎯 Selection Process</span></a></li>
               </ul>
             </li>
 
@@ -431,6 +432,23 @@
               <div class="form-row" style="margin-top:24px">
                 <button class="save-btn" id="candTrackBtn" type="button">Track Selection Process</button>
                 <button class="analyse-btn" id="candBackToListBtn" type="button">← Back to Candidatures</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Selection Process -->
+          <div id="selectionProcessSection" class="content-section hidden">
+            <div class="sp-header">
+              <button class="analyse-btn sp-back-btn" id="spBackBtn" type="button">&#8592; Back</button>
+              <div>
+                <h2 class="section-title" id="spTitle">Selection Process</h2>
+                <p class="sp-meta" id="spMeta"></p>
+              </div>
+            </div>
+            <div class="sp-layout">
+              <div class="sp-stage-list" id="spStageList"></div>
+              <div class="sp-stage-detail" id="spStageDetail">
+                <p class="sp-hint">Select a stage on the left to view details and get AI interview preparation.</p>
               </div>
             </div>
           </div>

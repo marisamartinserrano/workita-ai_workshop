@@ -10,7 +10,7 @@ const SECTION_JOURNEY_MAP = {
 };
 
 const PROFILE_SECTIONS = new Set(['job-preferences', 'cv-analysis', 'linkedin-analysis']);
-const CANDIDATURE_SECTIONS = new Set(['my-candidatures']);
+const CANDIDATURE_SECTIONS = new Set(['my-candidatures', 'selection-process-nav']);
 
 async function loadSession() {
   const data = await fetch('/api/session').then(r => r.json());
@@ -515,6 +515,7 @@ async function navigateTo(section) {
   document.getElementById('cvAnalysisSection').classList.add('hidden');
   document.getElementById('linkedinSection').classList.add('hidden');
   document.getElementById('myCandidaturesSection').classList.add('hidden');
+  document.getElementById('selectionProcessSection').classList.add('hidden');
   chatWindow.classList.remove('visible');
   chatWindow.innerHTML = '';
   inputArea.classList.remove('visible');
@@ -537,6 +538,11 @@ async function navigateTo(section) {
     'linkedin-analysis': 'linkedinSection',
     'my-candidatures': 'myCandidaturesSection',
   };
+
+  if (section === 'selection-process-nav') {
+    navigateTo('my-candidatures');
+    return;
+  }
 
   if (section in PROFILE_SECTION_IDS) {
     if (!currentUser) {
@@ -853,6 +859,7 @@ function renderCandidatureList(candidatures) {
       <div class="cand-card-right">
         <span class="match-badge ${badgeClass}">${matchText}</span>
         <div class="cand-card-actions">
+          <button class="cand-card-action-btn" data-action="track">Track</button>
           <button class="cand-card-action-btn" data-action="edit">Edit</button>
           <button class="cand-card-action-btn del" data-action="delete">Delete</button>
         </div>
@@ -860,6 +867,10 @@ function renderCandidatureList(candidatures) {
     card.addEventListener('click', e => {
       if (e.target.closest('.cand-card-actions')) return;
       viewCandidature(c.id);
+    });
+    card.querySelector('[data-action="track"]').addEventListener('click', e => {
+      e.stopPropagation();
+      openSelectionProcess(c.id);
     });
     card.querySelector('[data-action="edit"]').addEventListener('click', e => {
       e.stopPropagation();
@@ -1198,8 +1209,8 @@ document.getElementById('candDeleteBtn').addEventListener('click', () => {
   if (candCurrentData) deleteCandidature(candCurrentData.id);
 });
 document.getElementById('candTrackBtn').addEventListener('click', () => {
-  addBubble('model', '**Selection Process tracker** is coming soon. Stay tuned!');
-  navigateTo('home');
+  const candidatureId = document.getElementById('candTrackBtn').dataset.candidatureId;
+  if (candidatureId) openSelectionProcess(candidatureId);
 });
 
 // Quick-action buttons on the Home section
@@ -1207,6 +1218,243 @@ document.getElementById('qaNewCandidature').addEventListener('click', () => navi
 document.getElementById('qaFirstCandidature').addEventListener('click', () => navigateTo('my-candidatures'));
 document.getElementById('qaUpdateProfile').addEventListener('click', () => navigateTo('job-preferences'));
 document.getElementById('qaPracticeQuizzes').addEventListener('click', () => navigateTo('quizzes'));
+
+// ── Selection Process ──────────────────────────────────────────────────────
+
+let spCandidatureId = null;
+let spStages = [];
+let spSelectedStageId = null;
+let spNotesTimer = null;
+
+function getActiveStageId(stages) {
+  const scheduled = stages.find(s => s.status === 'scheduled');
+  if (scheduled) return scheduled.id;
+  let lastCompletedIdx = -1;
+  stages.forEach((s, i) => { if (s.status === 'completed') lastCompletedIdx = i; });
+  for (let i = lastCompletedIdx + 1; i < stages.length; i++) {
+    if (stages[i].status === 'pending') return stages[i].id;
+  }
+  return null;
+}
+
+function escapeHtml(text) {
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+async function openSelectionProcess(candidatureId) {
+  spCandidatureId = candidatureId;
+  spSelectedStageId = null;
+  spStages = [];
+
+  document.getElementById('chatPlaceholder').classList.add('hidden');
+  document.getElementById('homeSection').classList.add('hidden');
+  document.getElementById('jobPreferencesSection').classList.add('hidden');
+  document.getElementById('cvAnalysisSection').classList.add('hidden');
+  document.getElementById('linkedinSection').classList.add('hidden');
+  document.getElementById('myCandidaturesSection').classList.add('hidden');
+  document.getElementById('selectionProcessSection').classList.add('hidden');
+  const chatWindow = document.getElementById('chatWindow');
+  chatWindow.classList.remove('visible');
+  chatWindow.innerHTML = '';
+  document.getElementById('inputArea').classList.remove('visible');
+  activeJourney = null;
+  activeSection = null;
+  document.body.classList.remove('nav-open');
+  updateNavItems();
+
+  document.getElementById('selectionProcessSection').classList.remove('hidden');
+
+  try {
+    const cand = await fetch(`/api/candidatures/${candidatureId}`).then(r => r.json());
+    if (!cand.error) {
+      document.getElementById('spTitle').textContent = `${cand.job_title} at ${cand.company}`;
+      const meta = [cand.seniority, cand.location, cand.work_mode].filter(Boolean).join(' · ');
+      document.getElementById('spMeta').textContent = meta;
+    }
+  } catch {}
+
+  await loadSpStages();
+}
+
+async function loadSpStages() {
+  try {
+    const data = await fetch(`/api/candidatures/${spCandidatureId}/stages`).then(r => r.json());
+    spStages = data.stages || [];
+    renderStageList();
+    const activeId = getActiveStageId(spStages);
+    if (activeId) selectStage(activeId);
+  } catch {
+    document.getElementById('spStageList').innerHTML =
+      '<p style="color:#80868b;font-size:0.875rem;padding:8px">Failed to load stages.</p>';
+  }
+}
+
+function renderStageList() {
+  const list = document.getElementById('spStageList');
+  if (!list) return;
+  const activeId = getActiveStageId(spStages);
+  list.innerHTML = '';
+  spStages.forEach(stage => {
+    const item = document.createElement('div');
+    const isSelected = stage.id === spSelectedStageId;
+    const isCurrent = stage.id === activeId;
+    item.className = `sp-stage-item${isSelected ? ' selected' : ''}${isCurrent ? ' current' : ''}`;
+    item.innerHTML = `
+      <span class="sp-stage-name">${escapeHtml(stage.stage_name)}</span>
+      <span class="sp-stage-status-pill ${stage.status}">${stage.status}</span>
+    `;
+    item.addEventListener('click', () => selectStage(stage.id));
+    list.appendChild(item);
+  });
+}
+
+function selectStage(stageId) {
+  spSelectedStageId = stageId;
+  renderStageList();
+  const stage = spStages.find(s => s.id === stageId);
+  if (stage) renderStageDetail(stage);
+}
+
+function renderStageDetail(stage) {
+  const detail = document.getElementById('spStageDetail');
+  if (!detail) return;
+
+  const fmt = (iso) => iso
+    ? new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+    : null;
+  const scheduledDate = fmt(stage.scheduled_at);
+  const completedDate = fmt(stage.completed_at);
+
+  detail.innerHTML = `
+    <div class="sp-detail-header">
+      <h3 class="sp-detail-title">${escapeHtml(stage.stage_name)}</h3>
+      <select class="sp-status-select" id="spStatusSelect">
+        <option value="pending"   ${stage.status === 'pending'   ? 'selected' : ''}>Pending</option>
+        <option value="scheduled" ${stage.status === 'scheduled' ? 'selected' : ''}>Scheduled</option>
+        <option value="completed" ${stage.status === 'completed' ? 'selected' : ''}>Completed</option>
+        <option value="skipped"   ${stage.status === 'skipped'   ? 'selected' : ''}>Skipped</option>
+      </select>
+    </div>
+    ${scheduledDate || completedDate ? `
+    <div class="sp-dates">
+      ${scheduledDate ? `<span>Scheduled: ${scheduledDate}</span>` : ''}
+      ${completedDate ? `<span>Completed: ${completedDate}</span>` : ''}
+    </div>` : ''}
+    <div class="sp-notes-section">
+      <label class="sp-notes-label">Notes</label>
+      <textarea class="sp-notes" id="spNotes" rows="5" maxlength="2000"
+        placeholder="Interview questions asked, feedback received, personal thoughts…">${escapeHtml(stage.notes || '')}</textarea>
+      <span class="sp-notes-saved hidden" id="spNotesSaved">&#10003; Saved</span>
+    </div>
+    <div class="form-row" style="margin-top:4px">
+      <button class="save-btn" id="spGetPrepBtn" type="button">Get Interview Prep</button>
+    </div>
+    <div class="upload-status hidden" id="spPrepStatus">
+      <div class="upload-status-row">
+        <div class="upload-spinner"></div>
+        <span>Generating interview prep with AI…</span>
+      </div>
+    </div>
+    <div id="spPrepContent"></div>
+  `;
+
+  document.getElementById('spStatusSelect').addEventListener('change', async (e) => {
+    const newStatus = e.target.value;
+    await updateSpStage(stage.id, { status: newStatus });
+    const s = spStages.find(s => s.id === stage.id);
+    if (s) {
+      s.status = newStatus;
+      if (newStatus === 'scheduled' && !s.scheduled_at) s.scheduled_at = new Date().toISOString();
+      if (newStatus === 'completed' && !s.completed_at) s.completed_at = new Date().toISOString();
+      renderStageList();
+      renderStageDetail(s);
+    }
+  });
+
+  document.getElementById('spNotes').addEventListener('input', () => {
+    clearTimeout(spNotesTimer);
+    spNotesTimer = setTimeout(async () => {
+      const notes = document.getElementById('spNotes')?.value ?? '';
+      await updateSpStage(stage.id, { notes });
+      const s = spStages.find(s => s.id === stage.id);
+      if (s) s.notes = notes;
+      const savedEl = document.getElementById('spNotesSaved');
+      if (savedEl) {
+        savedEl.classList.remove('hidden');
+        setTimeout(() => savedEl.classList.add('hidden'), 2000);
+      }
+    }, 800);
+  });
+
+  document.getElementById('spGetPrepBtn').addEventListener('click', () => {
+    loadInterviewPrep(stage.id);
+  });
+}
+
+async function updateSpStage(stageId, updates) {
+  try {
+    await fetch(`/api/candidatures/${spCandidatureId}/stages/${stageId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    });
+  } catch {}
+}
+
+async function loadInterviewPrep(stageId) {
+  const btn = document.getElementById('spGetPrepBtn');
+  const statusEl = document.getElementById('spPrepStatus');
+  const contentEl = document.getElementById('spPrepContent');
+
+  if (btn) btn.disabled = true;
+  if (statusEl) statusEl.classList.remove('hidden');
+  if (contentEl) contentEl.innerHTML = '';
+
+  try {
+    const data = await fetch(`/api/candidatures/${spCandidatureId}/stages/${stageId}/prep`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    }).then(r => r.json());
+
+    if (statusEl) statusEl.classList.add('hidden');
+    if (btn) btn.disabled = false;
+
+    if (data.error) {
+      if (contentEl) contentEl.innerHTML = `<p style="color:#c5221f;font-size:0.875rem">${escapeHtml(data.error)}</p>`;
+      return;
+    }
+    if (contentEl) renderInterviewPrep(data, contentEl);
+  } catch {
+    if (statusEl) statusEl.classList.add('hidden');
+    if (btn) btn.disabled = false;
+    if (contentEl) contentEl.innerHTML = '<p style="color:#c5221f;font-size:0.875rem">Failed to generate interview prep. Please try again.</p>';
+  }
+}
+
+function renderInterviewPrep(data, container) {
+  const questionsHtml = (data.questions || []).map((q, i) => `
+    <div class="sp-prep-card">
+      <div class="sp-prep-q">${i + 1}. ${escapeHtml(q.question)}</div>
+      <div class="sp-prep-tip">${escapeHtml(q.tip)}</div>
+      <div class="sp-prep-answer">${escapeHtml(q.sampleAnswer)}</div>
+    </div>`).join('');
+
+  container.innerHTML = `
+    <div class="sp-prep-overview">${escapeHtml(data.overview || '')}</div>
+    <p class="sp-prep-section-label">Interview Questions</p>
+    <div class="sp-prep-questions">${questionsHtml}</div>
+  `;
+}
+
+document.getElementById('spBackBtn').addEventListener('click', () => {
+  navigateTo('my-candidatures');
+});
+
+// ── End Selection Process ──────────────────────────────────────────────────
 
 async function init() {
   await loadSession();
