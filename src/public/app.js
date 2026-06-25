@@ -1227,6 +1227,14 @@ let spExpandedStageId = null;
 let spNotesTimer = null;
 let spSelectListenerAdded = false;
 
+const SP_PREP_STEPS = [
+  { pct: 12, label: 'Analyzing stage requirements…' },
+  { pct: 32, label: 'Reviewing role and company context…' },
+  { pct: 55, label: 'Generating interview overview…' },
+  { pct: 76, label: 'Creating practice questions…' },
+  { pct: 91, label: 'Finalizing recommendations…' },
+];
+
 function getActiveStageId(stages) {
   const scheduled = stages.find(s => s.status === 'scheduled');
   if (scheduled) return scheduled.id;
@@ -1258,6 +1266,17 @@ async function loadSelectionProcess() {
   const accordion = document.getElementById('spStageAccordion');
   selectEl.innerHTML = '<option value="">Loading candidatures…</option>';
   accordion.innerHTML = '';
+
+  // Inject full-PDF download button into candidature bar (once)
+  const bar = document.querySelector('.sp-candidature-bar');
+  if (bar && !bar.querySelector('.sp-full-pdf-btn')) {
+    const btn = document.createElement('button');
+    btn.className = 'save-btn sp-full-pdf-btn';
+    btn.type = 'button';
+    btn.textContent = 'Download Full PDF';
+    btn.addEventListener('click', () => downloadFullPDF());
+    bar.appendChild(btn);
+  }
 
   try {
     const data = await fetch('/api/candidatures').then(r => r.json());
@@ -1325,6 +1344,7 @@ function renderStageAccordion() {
   spStages.forEach((stage, idx) => {
     const isExpanded = stage.id === spExpandedStageId;
     const isActive = stage.id === activeId;
+    const hasPrep = !!stage.ai_prep;
 
     const item = document.createElement('div');
     item.className = `sp-accordion-item${isActive ? ' current' : ''}${isExpanded ? ' expanded' : ''}`;
@@ -1335,6 +1355,7 @@ function renderStageAccordion() {
         <span class="sp-accordion-num">${idx + 1}</span>
         <span class="sp-accordion-name">${escapeHtml(stage.stage_name)}</span>
         <span class="sp-stage-status-pill ${stage.status}">${stage.status}</span>
+        ${hasPrep ? '<span class="sp-ai-badge">AI &#10003;</span>' : ''}
         <span class="sp-accordion-chevron">&#9660;</span>
       </button>
       <div class="sp-accordion-body">
@@ -1364,6 +1385,9 @@ function renderStageBody(stage) {
     : null;
   const scheduledDate = fmt(stage.scheduled_at);
   const completedDate = fmt(stage.completed_at);
+  const hasPrep = !!stage.ai_prep;
+
+  const prepHtml = hasPrep ? buildPrepHtml(stage.ai_prep) : '';
 
   return `
     <div class="sp-body-inner">
@@ -1389,17 +1413,40 @@ function renderStageBody(stage) {
           placeholder="Interview questions asked, feedback received, personal thoughts…">${escapeHtml(stage.notes || '')}</textarea>
         <span class="sp-notes-saved hidden" data-stage-saved="${stage.id}">&#10003; Saved</span>
       </div>
-      <div class="form-row" style="margin-top:8px">
-        <button class="save-btn sp-prep-btn" data-stage-id="${stage.id}" type="button">Get Interview Prep</button>
+      <div class="sp-action-row">
+        <button class="save-btn sp-prep-btn" data-stage-id="${stage.id}" type="button">
+          ${hasPrep ? 'Regenerate Interview Prep' : 'Get Interview Prep'}
+        </button>
+        <button class="sp-pdf-btn" data-stage-id="${stage.id}" type="button">&#8595; Download Stage PDF</button>
       </div>
-      <div class="upload-status hidden sp-prep-status" data-stage-id="${stage.id}">
-        <div class="upload-status-row">
-          <div class="upload-spinner"></div>
-          <span>Generating interview prep with AI…</span>
+      <div class="sp-gen-progress hidden">
+        <div class="sp-gen-prog-track">
+          <div class="sp-gen-prog-fill"></div>
+        </div>
+        <div class="sp-gen-prog-meta">
+          <span class="sp-gen-prog-step">Starting…</span>
+          <span class="sp-gen-prog-pct">0%</span>
         </div>
       </div>
-      <div class="sp-prep-content" data-stage-id="${stage.id}"></div>
+      <div class="sp-prep-content">${prepHtml}</div>
     </div>
+  `;
+}
+
+function buildPrepHtml(prep) {
+  if (!prep) return '';
+  const d = typeof prep === 'string' ? JSON.parse(prep) : prep;
+  const questionsHtml = (d.questions || []).map((q, i) => `
+    <div class="sp-prep-card">
+      <div class="sp-prep-q">${i + 1}. ${escapeHtml(q.question)}</div>
+      <div class="sp-prep-tip">${escapeHtml(q.tip)}</div>
+      <div class="sp-prep-answer">${escapeHtml(q.sampleAnswer)}</div>
+    </div>`).join('');
+
+  return `
+    <div class="sp-prep-overview">${escapeHtml(d.overview || '')}</div>
+    <p class="sp-prep-section-label">Interview Questions</p>
+    <div class="sp-prep-questions">${questionsHtml}</div>
   `;
 }
 
@@ -1415,17 +1462,14 @@ function wireStageBody(item, stage) {
       if (newStatus === 'completed' && !s.completed_at) s.completed_at = new Date().toISOString();
     }
 
-    // Update header pill
     const pill = item.querySelector('.sp-stage-status-pill');
     if (pill) { pill.className = `sp-stage-status-pill ${newStatus}`; pill.textContent = newStatus; }
 
-    // Refresh current-stage highlight across all items
     const activeId = getActiveStageId(spStages);
     document.querySelectorAll('.sp-accordion-item').forEach(el => {
       el.classList.toggle('current', el.dataset.stageId === activeId);
     });
 
-    // Update dates inline
     const updatedStage = spStages.find(s => s.id === stage.id);
     if (updatedStage) {
       const fmt = iso => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -1454,6 +1498,7 @@ function wireStageBody(item, stage) {
   });
 
   item.querySelector('.sp-prep-btn').addEventListener('click', () => loadInterviewPrep(stage.id));
+  item.querySelector('.sp-pdf-btn').addEventListener('click', () => downloadStagePDF(stage.id));
 }
 
 async function updateSpStage(stageId, updates) {
@@ -1466,16 +1511,50 @@ async function updateSpStage(stageId, updates) {
   } catch {}
 }
 
+function startPrepProgress(item) {
+  const progEl = item.querySelector('.sp-gen-progress');
+  const fill = item.querySelector('.sp-gen-prog-fill');
+  const stepLabel = item.querySelector('.sp-gen-prog-step');
+  const pctLabel = item.querySelector('.sp-gen-prog-pct');
+
+  progEl.classList.remove('hidden');
+  fill.style.width = '0%';
+  stepLabel.textContent = 'Starting…';
+  pctLabel.textContent = '0%';
+
+  let idx = 0;
+  const timer = setInterval(() => {
+    if (idx >= SP_PREP_STEPS.length) { clearInterval(timer); return; }
+    const step = SP_PREP_STEPS[idx++];
+    fill.style.width = `${step.pct}%`;
+    stepLabel.textContent = step.label;
+    pctLabel.textContent = `${step.pct}%`;
+  }, 850);
+
+  return timer;
+}
+
+function finishPrepProgress(item, timer) {
+  clearInterval(timer);
+  const fill = item.querySelector('.sp-gen-prog-fill');
+  const stepLabel = item.querySelector('.sp-gen-prog-step');
+  const pctLabel = item.querySelector('.sp-gen-prog-pct');
+  if (fill) { fill.style.width = '100%'; fill.classList.add('done'); }
+  if (stepLabel) stepLabel.textContent = 'Complete!';
+  if (pctLabel) pctLabel.textContent = '100%';
+  setTimeout(() => item.querySelector('.sp-gen-progress')?.classList.add('hidden'), 800);
+}
+
 async function loadInterviewPrep(stageId) {
   const item = document.querySelector(`.sp-accordion-item[data-stage-id="${stageId}"]`);
   if (!item) return;
   const btn = item.querySelector('.sp-prep-btn');
-  const statusEl = item.querySelector('.sp-prep-status');
   const contentEl = item.querySelector('.sp-prep-content');
 
   if (btn) btn.disabled = true;
-  if (statusEl) statusEl.classList.remove('hidden');
   if (contentEl) contentEl.innerHTML = '';
+
+  const timer = startPrepProgress(item);
 
   try {
     const data = await fetch(`/api/candidatures/${spCandidatureId}/stages/${stageId}/prep`, {
@@ -1483,34 +1562,43 @@ async function loadInterviewPrep(stageId) {
       headers: { 'Content-Type': 'application/json' },
     }).then(r => r.json());
 
-    if (statusEl) statusEl.classList.add('hidden');
-    if (btn) btn.disabled = false;
+    finishPrepProgress(item, timer);
+    if (btn) { btn.disabled = false; btn.textContent = 'Regenerate Interview Prep'; }
 
     if (data.error) {
       if (contentEl) contentEl.innerHTML = `<p style="color:#c5221f;font-size:0.875rem">${escapeHtml(data.error)}</p>`;
       return;
     }
-    if (contentEl) renderInterviewPrep(data, contentEl);
+
+    // Persist in local state so badge updates on next render
+    const s = spStages.find(s => s.id === stageId);
+    if (s) s.ai_prep = data;
+
+    // Update AI badge in header without full re-render
+    const header = item.querySelector('.sp-accordion-header');
+    if (header && !header.querySelector('.sp-ai-badge')) {
+      const chevron = header.querySelector('.sp-accordion-chevron');
+      const badge = document.createElement('span');
+      badge.className = 'sp-ai-badge';
+      badge.innerHTML = 'AI &#10003;';
+      header.insertBefore(badge, chevron);
+    }
+
+    if (contentEl) contentEl.innerHTML = buildPrepHtml(data);
   } catch {
-    if (statusEl) statusEl.classList.add('hidden');
+    finishPrepProgress(item, timer);
     if (btn) btn.disabled = false;
     if (contentEl) contentEl.innerHTML = '<p style="color:#c5221f;font-size:0.875rem">Failed to generate interview prep. Please try again.</p>';
   }
 }
 
-function renderInterviewPrep(data, container) {
-  const questionsHtml = (data.questions || []).map((q, i) => `
-    <div class="sp-prep-card">
-      <div class="sp-prep-q">${i + 1}. ${escapeHtml(q.question)}</div>
-      <div class="sp-prep-tip">${escapeHtml(q.tip)}</div>
-      <div class="sp-prep-answer">${escapeHtml(q.sampleAnswer)}</div>
-    </div>`).join('');
+function downloadStagePDF(stageId) {
+  window.open(`/api/candidatures/${spCandidatureId}/stages/${stageId}/pdf`, '_blank');
+}
 
-  container.innerHTML = `
-    <div class="sp-prep-overview">${escapeHtml(data.overview || '')}</div>
-    <p class="sp-prep-section-label">Interview Questions</p>
-    <div class="sp-prep-questions">${questionsHtml}</div>
-  `;
+function downloadFullPDF() {
+  if (!spCandidatureId) return;
+  window.open(`/api/candidatures/${spCandidatureId}/pdf`, '_blank');
 }
 
 // ── End Selection Process ──────────────────────────────────────────────────

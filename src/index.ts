@@ -1004,7 +1004,7 @@ app.get('/api/candidatures/:id/stages', requireAuth, async (req, res) => {
     );
     if (!cand[0]) { res.status(404).json({ error: 'Not found.' }); return; }
     const { rows } = await pool.query(
-      'SELECT * FROM candidature_stages WHERE candidature_id = $1 ORDER BY stage_order ASC, entered_at ASC',
+      'SELECT id, stage_name, stage_order, status, notes, scheduled_at, completed_at, ai_prep FROM candidature_stages WHERE candidature_id = $1 ORDER BY stage_order ASC, entered_at ASC',
       [req.params.id],
     );
     res.json({ stages: rows });
@@ -1076,10 +1076,155 @@ app.post('/api/candidatures/:id/stages/:stageId/prep', requireAuth, async (req, 
       cand[0].job_title as string,
       cand[0].company as string,
     );
+    await pool.query(
+      'UPDATE candidature_stages SET ai_prep = $1 WHERE id = $2',
+      [JSON.stringify(result), req.params.stageId],
+    );
     res.json(result);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to generate interview prep.' });
+  }
+});
+
+// ── PDF helpers ──────────────────────────────────────────────────────────────
+
+function buildPdf(res: express.Response, filename: string, writeFn: (doc: any) => void): void {
+  const PDFKit = require('pdfkit') as any;
+  const doc = new PDFKit({ margin: 50, size: 'A4' });
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  doc.pipe(res);
+  writeFn(doc);
+  doc.end();
+}
+
+function spPdfHeader(doc: any, jobTitle: string, company: string, subtitle: string): void {
+  doc.fontSize(18).font('Helvetica-Bold').fillColor('#1a1a1a')
+    .text('Workita — AI Interview Preparation', { align: 'center' });
+  doc.moveDown(0.3);
+  doc.fontSize(13).font('Helvetica').fillColor('#333')
+    .text(`${jobTitle} at ${company}`, { align: 'center' });
+  doc.fontSize(10).fillColor('#777')
+    .text(subtitle, { align: 'center' });
+  doc.moveDown(0.8);
+  doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor('#d0d0d0').stroke();
+  doc.moveDown(0.8);
+  doc.fillColor('#1a1a1a');
+}
+
+function spPdfStagePrep(doc: any, stage: { stage_name: string; status: string; notes?: string; scheduled_at?: string; completed_at?: string; ai_prep?: any }, stageFmt: string): void {
+  const fmt = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+
+  doc.fontSize(13).font('Helvetica-Bold').fillColor('#1a1a1a').text(stageFmt);
+  doc.fontSize(10).font('Helvetica').fillColor('#555').text(`Status: ${stage.status}`);
+
+  if (stage.scheduled_at) doc.text(`Scheduled: ${fmt(stage.scheduled_at)}`);
+  if (stage.completed_at) doc.text(`Completed: ${fmt(stage.completed_at)}`);
+
+  if (stage.notes) {
+    doc.moveDown(0.4);
+    doc.fontSize(11).font('Helvetica-Bold').fillColor('#333').text('Notes');
+    doc.fontSize(10).font('Helvetica').fillColor('#444').text(stage.notes, { lineGap: 3 });
+  }
+
+  const prep = stage.ai_prep ? (typeof stage.ai_prep === 'string' ? JSON.parse(stage.ai_prep) : stage.ai_prep) : null;
+
+  if (prep) {
+    doc.moveDown(0.6);
+    doc.fontSize(11).font('Helvetica-Bold').fillColor('#1a73e8').text('AI Interview Prep');
+    doc.moveDown(0.2);
+    doc.fontSize(10).font('Helvetica').fillColor('#333').text(prep.overview || '', { lineGap: 3 });
+
+    if ((prep.questions || []).length) {
+      doc.moveDown(0.5);
+      doc.fontSize(11).font('Helvetica-Bold').fillColor('#333').text('Practice Questions');
+      (prep.questions as { question: string; tip: string; sampleAnswer: string }[]).forEach((q, i) => {
+        doc.moveDown(0.4);
+        doc.fontSize(10).font('Helvetica-Bold').fillColor('#1a1a1a').text(`${i + 1}. ${q.question}`);
+        doc.fontSize(9).font('Helvetica').fillColor('#1557b0').text(`Tip: ${q.tip}`, { lineGap: 2 });
+        doc.fillColor('#444').text(q.sampleAnswer, { lineGap: 3 });
+      });
+    }
+  } else {
+    doc.moveDown(0.4);
+    doc.fontSize(10).font('Helvetica').fillColor('#999').text('No AI prep generated for this stage yet.');
+  }
+
+  doc.fillColor('#1a1a1a');
+}
+
+// Single-stage PDF
+app.get('/api/candidatures/:id/stages/:stageId/pdf', requireAuth, async (req, res) => {
+  try {
+    const userId = (req.user as { id: string }).id;
+    const { rows: cand } = await pool.query(
+      'SELECT job_title, company FROM candidatures WHERE id = $1 AND user_id = $2',
+      [req.params.id, userId],
+    );
+    if (!cand[0]) { res.status(404).json({ error: 'Not found.' }); return; }
+
+    const { rows: stages } = await pool.query(
+      'SELECT stage_name, status, notes, scheduled_at, completed_at, ai_prep FROM candidature_stages WHERE id = $1 AND candidature_id = $2',
+      [req.params.stageId, req.params.id],
+    );
+    if (!stages[0]) { res.status(404).json({ error: 'Stage not found.' }); return; }
+
+    const stage = stages[0];
+    const slug = (stage.stage_name as string).replace(/\s+/g, '-').toLowerCase();
+    const filename = `workita-prep-${slug}.pdf`;
+
+    buildPdf(res, filename, (doc) => {
+      spPdfHeader(doc, cand[0].job_title as string, cand[0].company as string,
+        `Generated on ${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}`);
+      spPdfStagePrep(doc, stage, stage.stage_name as string);
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to generate PDF.' });
+  }
+});
+
+// Full selection-process PDF
+app.get('/api/candidatures/:id/pdf', requireAuth, async (req, res) => {
+  try {
+    const userId = (req.user as { id: string }).id;
+    const { rows: cand } = await pool.query(
+      'SELECT job_title, company, seniority, location, work_mode FROM candidatures WHERE id = $1 AND user_id = $2',
+      [req.params.id, userId],
+    );
+    if (!cand[0]) { res.status(404).json({ error: 'Not found.' }); return; }
+
+    const { rows: stages } = await pool.query(
+      'SELECT stage_name, stage_order, status, notes, scheduled_at, completed_at, ai_prep FROM candidature_stages WHERE candidature_id = $1 ORDER BY stage_order ASC',
+      [req.params.id],
+    );
+
+    const filename = `workita-selection-process-${(cand[0].company as string).replace(/\s+/g, '-').toLowerCase()}.pdf`;
+
+    buildPdf(res, filename, (doc) => {
+      const meta = [cand[0].seniority, cand[0].location, cand[0].work_mode].filter(Boolean).join(' · ');
+      spPdfHeader(doc, cand[0].job_title as string, cand[0].company as string,
+        `${meta ? meta + ' · ' : ''}Generated on ${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}`);
+
+      // Overview table
+      doc.fontSize(12).font('Helvetica-Bold').fillColor('#333').text('Selection Process Overview');
+      doc.moveDown(0.4);
+      stages.forEach((s, i) => {
+        doc.fontSize(10).font('Helvetica').fillColor('#444')
+          .text(`${i + 1}. ${s.stage_name}`, { continued: true })
+          .fillColor('#999').text(`  —  ${s.status}`);
+      });
+
+      // Detail per stage
+      stages.forEach((s, i) => {
+        doc.addPage();
+        spPdfStagePrep(doc, s, `Stage ${i + 1}: ${s.stage_name}`);
+      });
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to generate PDF.' });
   }
 });
 
@@ -1101,6 +1246,7 @@ async function runMigrations() {
   await pool.query(`ALTER TABLE candidature_stages ADD COLUMN IF NOT EXISTS notes TEXT`);
   await pool.query(`ALTER TABLE candidature_stages ADD COLUMN IF NOT EXISTS scheduled_at TIMESTAMPTZ`);
   await pool.query(`ALTER TABLE candidature_stages ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ`);
+  await pool.query(`ALTER TABLE candidature_stages ADD COLUMN IF NOT EXISTS ai_prep JSONB`);
 }
 
 runMigrations()
